@@ -159,7 +159,7 @@ Three GitHub Actions workflows live in [`.github/workflows/`](.github/workflows)
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| [`ci.yml`](.github/workflows/ci.yml) | every push to `main` and every PR | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pytest` across Python 3.9 / 3.12 / 3.13 on Linux + macOS |
+| [`ci.yml`](.github/workflows/ci.yml) | every push to `main` and every PR | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pytest` across Python 3.10 / 3.12 / 3.13 on Linux + macOS |
 | [`release-pypi.yml`](.github/workflows/release-pypi.yml) | tag `py-vX.Y.Z` | Builds wheels for Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x64; builds sdist; publishes to PyPI via OIDC trusted publishing |
 | [`release-crates.yml`](.github/workflows/release-crates.yml) | tag `vX.Y.Z` | `cargo publish -p rotorvec` to crates.io via OIDC trusted publishing |
 
