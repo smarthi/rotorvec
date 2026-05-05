@@ -5,3 +5,14 @@ Cargo.lock
 .DS_Store
 .idea/
 .vscode/
+
+# Python build artefacts
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+.venv-*/

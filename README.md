@@ -22,13 +22,59 @@ O(d²) FMAs per vector. All three rotorvec variants are O(d) per vector.
 
 ## Quick start
 
+### Python
+
+Build the extension locally with [maturin](https://github.com/PyO3/maturin)
+(a published wheel is on the v0.2 roadmap):
+
+```bash
+cd rotorvec-python
+python -m venv .venv && source .venv/bin/activate
+pip install maturin numpy
+maturin develop --release
+```
+
+Then:
+
+```python
+import numpy as np
+from rotorvec import RotorQuantIndex, IdMapIndex
+
+# Default: Cl(3,0) rotors, 4-bit codes
+index = RotorQuantIndex(dim=1536, bits=4)
+
+# Or pick a variant explicitly
+planar = RotorQuantIndex(dim=1536, bits=4, rotation="planar2")
+iso    = RotorQuantIndex(dim=1536, bits=4, rotation="iso4")
+
+vectors = np.random.randn(10_000, 1536).astype(np.float32)
+queries = np.random.randn(8, 1536).astype(np.float32)
+
+index.add(vectors)
+scores, indices = index.search(queries, k=10)   # (8, 10) float32 / int64
+
+index.write("index.rv")
+loaded = RotorQuantIndex.load("index.rv")
+```
+
+Stable external ids:
+
+```python
+ids = np.array([1001, 1002, 1003], dtype=np.uint64)
+m = IdMapIndex(dim=1536, bits=4, rotation="planar2")
+m.add_with_ids(vectors[:3], ids)
+scores, returned_ids = m.search(queries, k=3)   # ids are uint64
+m.remove(1002)
+```
+
+Accepted `rotation` values: `"planar2"`, `"rotor3"` (default), `"iso4"`.
+
+### Rust
+
 ```rust
 use rotorvec::{RotorQuantIndex, Rotation};
 
-// Default: Cl(3,0) rotors, 4-bit codes
-let mut index = RotorQuantIndex::new(1536, 4);
-
-// Or pick a variant explicitly
+let mut index = RotorQuantIndex::new(1536, 4);                       // Rotor3 default
 let mut planar = RotorQuantIndex::with_rotation(1536, 4, Rotation::Planar2);
 let mut iso    = RotorQuantIndex::with_rotation(1536, 4, Rotation::Iso4);
 
@@ -87,19 +133,33 @@ before committing.
 | BLAS dependency | Yes (Accelerate / OpenBLAS) | None |
 | Decorrelation scope | All d coordinates | Within 2/3/4-element blocks only |
 
+## Repo layout
+
+This is a Cargo workspace with two members:
+
+* [`rotorvec/`](rotorvec) — the Rust library (`use rotorvec::...`).
+* [`rotorvec-python/`](rotorvec-python) — PyO3 bindings (`import rotorvec`).
+
+Run the Rust test suite with `cargo test -p rotorvec --release`. Run the
+Python suite with `cd rotorvec-python && pytest tests/` after `maturin
+develop`.
+
 ## Status
 
 **v0.1 — proof of concept**
-- All three variants implemented and tested (13 tests passing)
+- All three variants implemented and tested
+  - 13 Rust tests (unit + integration + doctest)
+  - 13 Python tests (parametrized across all three variants)
 - Pure Rust, no SIMD intrinsics
 - Will be slower than turbovec's hand-tuned NEON/AVX-512 search by 3–5×
 - Use for: experimentation, recall benchmarks, baseline implementations
 
 **Roadmap (v0.2+)**
+- Published wheels on PyPI
 - NEON / AVX-512 search kernels (port turbovec's blocked layout)
 - Recall benchmarks across all three variants vs turbovec on standard
   datasets (GloVe, SIFT, GIST)
-- Python bindings via PyO3
+- LangChain / LlamaIndex / Haystack integrations
 
 ## File format
 

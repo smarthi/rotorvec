@@ -1,0 +1,22 @@
+[package]
+name = "rotorvec"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Vector index using Clifford-rotor block-diagonal quantization (RotorQuant)"
+license = "MIT"
+repository = "https://github.com/suneelmarthi/rotorvec"
+readme = "../README.md"
+keywords = ["vector-search", "quantization", "clifford", "rotor", "ann"]
+categories = ["algorithms", "science", "compression"]
+
+[dependencies]
+rayon = "1.10"
+rand = "0.8"
+rand_chacha = "0.3"
+rand_distr = "0.4"
+statrs = "0.17"
+
+[dev-dependencies]
+rand = "0.8"
+
