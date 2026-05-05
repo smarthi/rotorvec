@@ -1,34 +1,37 @@
 # rotorvec
 
-A vector index built on **RotorQuant** — Clifford algebra Cl(3,0) rotors for
-data-oblivious vector quantization. Block-diagonal cousin of
-[turbovec](https://github.com/RyanCodrai/turbovec)'s TurboQuant.
+A vector index built on **block-diagonal rotor quantization** — a family of
+data-oblivious quantizers that swap TurboQuant's dense d×d random orthogonal
+matrix for small per-block rotations from Clifford algebra. Inspired by
+[turbovec](https://github.com/RyanCodrai/turbovec) (TurboQuant) and the
+[RotorQuant paper](https://www.scrya.com/rotorquant.pdf).
 
 > *"Replace the d×d random orthogonal matrix with Clifford rotors... exploiting
-> algebraic sparsity"* — [RotorQuant paper](https://www.scrya.com/rotorquant.pdf)
+> algebraic sparsity"* — RotorQuant paper
 
-## What's different from turbovec
+## Three rotation variants
 
-| | turbovec (TurboQuant) | **rotorvec (RotorQuant)** |
-|---|---|---|
-| Decorrelation | Dense d×d random orthogonal matrix | Block-diagonal SO(3) rotors |
-| Rotation cost | O(d²) per vector (BLAS GEMM) | O(d) per vector |
-| Parameters | d² floats | 4 × (d/3) floats |
-| BLAS dependency | Yes (Accelerate / OpenBLAS) | None |
-| Decorrelation scope | All d coordinates | Within 3-element blocks only |
+| Variant | Block | Algebra | Params (d=128) | When to pick it |
+|---|---:|---|---:|---|
+| `Planar2` | 2 | 2D Givens (SO(2)) | 128 | Cheapest. Per the RotorQuant paper, **best PPL** for KV-cache decorrelation. |
+| `Rotor3` | 3 | Cl(3,0) sandwich `R v R̃` | 172 | Default. Richer algebraic structure than Givens, modest cost. |
+| `Iso4` | 4 | Quaternion left-iso (SO(4)) | 128 | Most decorrelation per group; slightly more compute than `Planar2`. |
 
-The trade-off: block-diagonal rotation is dramatically cheaper but only
-decorrelates within 3-element blocks. Per the RotorQuant paper, this is
-sufficient for KV cache vectors (low-rank manifolds). For general embedding
-search, recall vs turbovec is an empirical question — benchmark before
-committing.
+For comparison, TurboQuant uses **16,384 parameters** (a 128×128 matrix) and
+O(d²) FMAs per vector. All three rotorvec variants are O(d) per vector.
 
 ## Quick start
 
 ```rust
-use rotorvec::RotorQuantIndex;
+use rotorvec::{RotorQuantIndex, Rotation};
 
+// Default: Cl(3,0) rotors, 4-bit codes
 let mut index = RotorQuantIndex::new(1536, 4);
+
+// Or pick a variant explicitly
+let mut planar = RotorQuantIndex::with_rotation(1536, 4, Rotation::Planar2);
+let mut iso    = RotorQuantIndex::with_rotation(1536, 4, Rotation::Iso4);
+
 index.add(&vectors);
 let results = index.search(&queries, 10);
 index.write("index.rv").unwrap();
@@ -38,9 +41,9 @@ let loaded = RotorQuantIndex::load("index.rv").unwrap();
 For stable external ids:
 
 ```rust
-use rotorvec::IdMapIndex;
+use rotorvec::{IdMapIndex, Rotation};
 
-let mut index = IdMapIndex::new(1536, 4);
+let mut index = IdMapIndex::with_rotation(1536, 4, Rotation::Planar2);
 index.add_with_ids(&vectors, &[1001, 1002, 1003]);
 let (scores, ids) = index.search(&queries, 10);
 index.remove(1002);
@@ -48,13 +51,19 @@ index.remove(1002);
 
 ## How it works
 
-1. **Normalize** each vector to unit length, store norm separately.
-2. **Generate rotors** — one Cl(3,0) rotor R per 3-element block,
-   deterministically seeded. Each rotor R = (cos θ/2, sin θ/2 · b̂) where b̂
-   is a unit bivector.
-3. **Block-rotate** — apply the rotor sandwich `R v R̃` to each 3-block.
-   For grade-1 input vectors, this reduces algebraically to a 3×3 SO(3)
-   rotation (we precompute the matrix at index init time).
+For each variant the pipeline is the same — only the rotation changes:
+
+1. **Normalize** each vector to unit length, store the norm separately.
+2. **Generate per-block rotation matrices** from a deterministic ChaCha8
+   seed:
+   * `Planar2`: sample one angle θ → 2×2 Givens matrix.
+   * `Rotor3`: sample a unit Cl(3,0) rotor `R = (s, b₁₂, b₁₃, b₂₃)` →
+     3×3 SO(3) matrix (the sandwich `R v R̃` reduces algebraically to a
+     3×3 rotation for grade-1 input).
+   * `Iso4`: sample a unit quaternion `q = (w, x, y, z)` → 4×4 SO(4) matrix
+     (left-isoclinic action `M v ↔ q · v`).
+3. **Block-rotate** the unit vector — block-diagonal matrix multiply, no
+   inter-block dependencies.
 4. **Quantize** each rotated coordinate to a Lloyd-Max centroid (2/3/4 bit).
 5. **Bit-pack** into bit-plane format.
 
@@ -62,25 +71,48 @@ Search reverses the process: rotate the query, accumulate per-coordinate
 inner products against each stored vector's quantized codes, multiply by
 stored norms, return top-k.
 
+The trade-off across all three variants: block-diagonal rotation only
+decorrelates within blocks, not across them. Per the RotorQuant paper this
+is sufficient for KV cache vectors (low-rank manifolds). For general
+embedding search, recall vs turbovec is an empirical question — benchmark
+before committing.
+
+## What's different from turbovec
+
+| | turbovec (TurboQuant) | rotorvec (any variant) |
+|---|---|---|
+| Decorrelation | Dense d×d random orthogonal matrix | Block-diagonal small rotations |
+| Rotation cost | O(d²) per vector (BLAS GEMM) | O(d) per vector |
+| Parameters | d² floats | ~d floats |
+| BLAS dependency | Yes (Accelerate / OpenBLAS) | None |
+| Decorrelation scope | All d coordinates | Within 2/3/4-element blocks only |
+
 ## Status
 
 **v0.1 — proof of concept**
-- Correct algorithmically
+- All three variants implemented and tested (13 tests passing)
 - Pure Rust, no SIMD intrinsics
 - Will be slower than turbovec's hand-tuned NEON/AVX-512 search by 3–5×
 - Use for: experimentation, recall benchmarks, baseline implementations
 
 **Roadmap (v0.2+)**
 - NEON / AVX-512 search kernels (port turbovec's blocked layout)
-- PlanarQuant (2D Givens) and IsoQuant (4D quaternion) variants
+- Recall benchmarks across all three variants vs turbovec on standard
+  datasets (GloVe, SIFT, GIST)
 - Python bindings via PyO3
-- Recall benchmarks vs turbovec on standard datasets (GloVe, SIFT, GIST)
+
+## File format
+
+The on-disk format encodes which rotation variant the index uses, so loading
+a `.rv` or `.rvim` file picks the right block size automatically. See the
+header doc-comment in [`src/io.rs`](src/io.rs) for the byte layout.
 
 ## Attribution
 
 - **TurboQuant** — Google Research, [arXiv:2504.19874](https://arxiv.org/abs/2504.19874)
-- **turbovec** — Ryan Codrai, [github.com/RyanCodrai/turbovec](https://github.com/RyanCodrai/turbovec) — architecture and bit-packing layout ported here
-- **RotorQuant** — John Pope, [scrya.com/rotorquant.pdf](https://www.scrya.com/rotorquant.pdf) — Clifford rotor decorrelation algorithm
+- **turbovec** — Ryan Codrai, [github.com/RyanCodrai/turbovec](https://github.com/RyanCodrai/turbovec) — architecture and bit-packing layout adapted here
+- **RotorQuant** — John Pope, [scrya.com/rotorquant.pdf](https://www.scrya.com/rotorquant.pdf) — Clifford rotor (`Rotor3`) decorrelation algorithm
+- **PlanarQuant / IsoQuant** — [ParaMind2025](https://github.com/ParaMind2025/isoquant) — 2D Givens (`Planar2`) and 4D quaternion (`Iso4`) variants
 
 ## License
 

@@ -1,19 +1,23 @@
 //! RotorQuant vector index — block-diagonal Clifford-rotor quantization.
 //!
+//! Three rotation variants:
+//! * [`Rotation::Planar2`] — 2D Givens (PlanarQuant). Cheapest, often best
+//!   on KV-cache PPL per the RotorQuant paper.
+//! * [`Rotation::Rotor3`] — Cl(3,0) rotor sandwich (RotorQuant). The
+//!   default; balances algebraic richness and cost.
+//! * [`Rotation::Iso4`] — quaternion left-iso (IsoQuant). Most decorrelation
+//!   per group; slightly more compute than Planar2.
+//!
 //! ```no_run
-//! use rotorvec::RotorQuantIndex;
+//! use rotorvec::{RotorQuantIndex, Rotation};
 //!
-//! let mut index = RotorQuantIndex::new(1536, 4);
-//! let vectors: Vec<f32> = vec![0.0; 1536 * 10];
-//! let queries: Vec<f32> = vec![0.0; 1536 * 2];
-//! index.add(&vectors);
-//! let results = index.search(&queries, 10);
-//! index.write("index.rv").unwrap();
-//! let loaded = RotorQuantIndex::load("index.rv").unwrap();
+//! // Default (Rotor3, Cl(3,0))
+//! let mut idx = RotorQuantIndex::new(1536, 4);
+//!
+//! // Or pick a variant explicitly
+//! let mut idx2 = RotorQuantIndex::with_rotation(1536, 4, Rotation::Planar2);
+//! # let _ = (idx, idx2);
 //! ```
-//!
-//! See [`RotorQuantIndex`] for the main API and [`IdMapIndex`] for stable
-//! external ids.
 
 pub mod codebook;
 pub mod encode;
@@ -25,15 +29,18 @@ pub mod rotor;
 pub mod search;
 
 pub use id_map::IdMapIndex;
+pub use rotor::Rotation;
 
 use std::path::Path;
 use std::sync::OnceLock;
 
-/// Default rotor seed. Two indices built with the same `(dim, seed)` produce
-/// bit-identical block-rotation matrices.
+/// Default rotor seed. Two indices with the same `(dim, rotation, seed)`
+/// produce bit-identical block matrices.
 pub const DEFAULT_ROTOR_SEED: u64 = 0x0707_04EC_u64;
 
-/// Top-k search results, laid out as `nq` consecutive rows of length `k`.
+/// Default rotation kind for [`RotorQuantIndex::new`]: Cl(3,0) rotors.
+pub const DEFAULT_ROTATION: Rotation = Rotation::Rotor3;
+
 pub struct SearchResults {
     pub scores: Vec<f32>,
     pub indices: Vec<i64>,
@@ -53,28 +60,35 @@ impl SearchResults {
 pub struct RotorQuantIndex {
     dim: usize,
     bits: usize,
+    rotation: Rotation,
     n_vectors: usize,
     seed: u64,
     packed_codes: Vec<u8>,
     norms: Vec<f32>,
 
-    block_matrices: OnceLock<Vec<f32>>,
+    block_matrices: OnceLock<(Vec<f32>, usize)>, // (matrices, padded_dim)
     centroids: OnceLock<Vec<f32>>,
 }
 
 impl RotorQuantIndex {
-    /// Create an empty index. `dim` must be a multiple of 8; `bits` must be
-    /// 2, 3, or 4.
+    /// Empty index with default [`Rotation::Rotor3`] and default seed.
     pub fn new(dim: usize, bits: usize) -> Self {
-        Self::with_seed(dim, bits, DEFAULT_ROTOR_SEED)
+        Self::with_options(dim, bits, DEFAULT_ROTATION, DEFAULT_ROTOR_SEED)
     }
 
-    pub fn with_seed(dim: usize, bits: usize, seed: u64) -> Self {
+    /// Empty index with explicit rotation kind, default seed.
+    pub fn with_rotation(dim: usize, bits: usize, rotation: Rotation) -> Self {
+        Self::with_options(dim, bits, rotation, DEFAULT_ROTOR_SEED)
+    }
+
+    /// Empty index with explicit rotation kind and seed.
+    pub fn with_options(dim: usize, bits: usize, rotation: Rotation, seed: u64) -> Self {
         assert!((2..=4).contains(&bits), "bits must be 2, 3, or 4");
         assert!(dim % 8 == 0, "dim must be a multiple of 8");
         Self {
             dim,
             bits,
+            rotation,
             n_vectors: 0,
             seed,
             packed_codes: Vec::new(),
@@ -86,15 +100,23 @@ impl RotorQuantIndex {
 
     pub fn add(&mut self, vectors: &[f32]) {
         let n = vectors.len() / self.dim;
-        assert_eq!(vectors.len(), n * self.dim, "vectors length must be a multiple of dim");
+        assert_eq!(vectors.len(), n * self.dim, "vectors length not a multiple of dim");
         if n == 0 {
             return;
         }
 
-        let block_matrices = self.ensure_block_matrices().clone();
+        let (matrices, padded_dim) = self.ensure_block_matrices().clone();
         let (boundaries, _) = codebook::codebook(self.bits, self.dim);
-        let (packed, norms) =
-            encode::encode(vectors, n, self.dim, &block_matrices, &boundaries, self.bits);
+        let (packed, norms) = encode::encode(
+            vectors,
+            n,
+            self.dim,
+            &matrices,
+            self.rotation.block_size(),
+            padded_dim,
+            &boundaries,
+            self.bits,
+        );
 
         self.packed_codes.extend_from_slice(&packed);
         self.norms.extend_from_slice(&norms);
@@ -105,7 +127,7 @@ impl RotorQuantIndex {
         let nq = queries.len() / self.dim;
         assert_eq!(queries.len(), nq * self.dim);
 
-        let block_matrices = self.ensure_block_matrices();
+        let (matrices, padded_dim) = self.ensure_block_matrices();
         let centroids = self.ensure_centroids();
         let k = k.min(self.n_vectors).max(1);
 
@@ -116,7 +138,9 @@ impl RotorQuantIndex {
                 queries,
                 nq,
                 self.dim,
-                block_matrices,
+                matrices,
+                self.rotation.block_size(),
+                *padded_dim,
                 &self.packed_codes,
                 centroids,
                 &self.norms,
@@ -140,6 +164,7 @@ impl RotorQuantIndex {
             self.bits,
             self.dim,
             self.n_vectors,
+            self.rotation,
             self.seed,
             &self.packed_codes,
             &self.norms,
@@ -147,13 +172,14 @@ impl RotorQuantIndex {
     }
 
     pub fn load(path: impl AsRef<Path>) -> std::io::Result<Self> {
-        let (bits, dim, n_vectors, seed, packed_codes, norms) = io::load(path)?;
-        Ok(Self::from_parts(dim, bits, n_vectors, seed, packed_codes, norms))
+        let (bits, dim, n_vectors, rotation, seed, packed_codes, norms) = io::load(path)?;
+        Ok(Self::from_parts(dim, bits, rotation, n_vectors, seed, packed_codes, norms))
     }
 
     pub(crate) fn from_parts(
         dim: usize,
         bits: usize,
+        rotation: Rotation,
         n_vectors: usize,
         seed: u64,
         packed_codes: Vec<u8>,
@@ -162,6 +188,7 @@ impl RotorQuantIndex {
         Self {
             dim,
             bits,
+            rotation,
             n_vectors,
             seed,
             packed_codes,
@@ -180,10 +207,16 @@ impl RotorQuantIndex {
     pub(crate) fn seed(&self) -> u64 {
         self.seed
     }
+    pub(crate) fn rotation_kind(&self) -> Rotation {
+        self.rotation
+    }
 
-    fn ensure_block_matrices(&self) -> &Vec<f32> {
-        self.block_matrices
-            .get_or_init(|| rotor::precompute_block_matrices(self.dim, self.seed).0)
+    fn ensure_block_matrices(&self) -> &(Vec<f32>, usize) {
+        self.block_matrices.get_or_init(|| {
+            let (mats, _, padded) =
+                rotor::precompute_block_matrices(self.dim, self.rotation, self.seed);
+            (mats, padded)
+        })
     }
 
     fn ensure_centroids(&self) -> &Vec<f32> {
@@ -193,8 +226,6 @@ impl RotorQuantIndex {
         })
     }
 
-    /// Remove the vector at `idx` in O(1) by swap-with-last. Order is **not**
-    /// preserved. Returns the old index of the moved vector.
     pub fn swap_remove(&mut self, idx: usize) -> usize {
         assert!(idx < self.n_vectors, "index {idx} out of bounds");
         let bytes_per_vec = self.dim * self.bits / 8;
@@ -222,5 +253,8 @@ impl RotorQuantIndex {
     }
     pub fn bits(&self) -> usize {
         self.bits
+    }
+    pub fn rotation(&self) -> Rotation {
+        self.rotation
     }
 }

@@ -1,18 +1,11 @@
 //! Stable external IDs on top of [`RotorQuantIndex`].
-//!
-//! [`RotorQuantIndex`] stores vectors positionally: `swap_remove` invalidates
-//! external references because the previously-last vector moves into the
-//! deleted slot. `IdMapIndex` wraps it with a bidirectional `id ↔ slot`
-//! mapping so callers can identify vectors by a stable `u64` ID.
-//!
-//! Roughly analogous to FAISS's `IndexIDMap2`. The wrapper delegates all
-//! vector storage and search to the inner index and only owns the ID table.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use crate::io;
-use crate::RotorQuantIndex;
+use crate::rotor::Rotation;
+use crate::{RotorQuantIndex, DEFAULT_ROTATION, DEFAULT_ROTOR_SEED};
 
 pub struct IdMapIndex {
     inner: RotorQuantIndex,
@@ -22,24 +15,21 @@ pub struct IdMapIndex {
 
 impl IdMapIndex {
     pub fn new(dim: usize, bits: usize) -> Self {
+        Self::with_options(dim, bits, DEFAULT_ROTATION, DEFAULT_ROTOR_SEED)
+    }
+
+    pub fn with_rotation(dim: usize, bits: usize, rotation: Rotation) -> Self {
+        Self::with_options(dim, bits, rotation, DEFAULT_ROTOR_SEED)
+    }
+
+    pub fn with_options(dim: usize, bits: usize, rotation: Rotation, seed: u64) -> Self {
         Self {
-            inner: RotorQuantIndex::new(dim, bits),
+            inner: RotorQuantIndex::with_options(dim, bits, rotation, seed),
             slot_to_id: Vec::new(),
             id_to_slot: HashMap::new(),
         }
     }
 
-    pub fn with_seed(dim: usize, bits: usize, seed: u64) -> Self {
-        Self {
-            inner: RotorQuantIndex::with_seed(dim, bits, seed),
-            slot_to_id: Vec::new(),
-            id_to_slot: HashMap::new(),
-        }
-    }
-
-    /// Add `n = vectors.len() / dim` vectors with the given external ids.
-    /// Panics if `ids.len() != n`, if any id is already present, or if `ids`
-    /// contains duplicates within this call.
     pub fn add_with_ids(&mut self, vectors: &[f32], ids: &[u64]) {
         let dim = self.inner.dim();
         let n = vectors.len() / dim;
@@ -60,7 +50,6 @@ impl IdMapIndex {
         self.inner.add(vectors);
     }
 
-    /// Remove the vector with the given id. O(1).
     pub fn remove(&mut self, id: u64) -> bool {
         let Some(slot) = self.id_to_slot.remove(&id) else {
             return false;
@@ -77,16 +66,10 @@ impl IdMapIndex {
         true
     }
 
-    /// Top-`k` search returning external ids. Layout matches
-    /// [`crate::SearchResults`]: row `qi` occupies indices
-    /// `qi * k .. (qi + 1) * k`.
     pub fn search(&self, queries: &[f32], k: usize) -> (Vec<f32>, Vec<u64>) {
         let res = self.inner.search(queries, k);
         let mut ids = Vec::with_capacity(res.indices.len());
         for &slot in &res.indices {
-            // Sentinel `-1` (or `usize::MAX` cast) appears only when the
-            // index has fewer than `k` vectors and the result is padded.
-            // Map those to `u64::MAX` so callers can detect them.
             if slot < 0 {
                 ids.push(u64::MAX);
             } else {
@@ -116,6 +99,10 @@ impl IdMapIndex {
         self.inner.bits()
     }
 
+    pub fn rotation(&self) -> Rotation {
+        self.inner.rotation()
+    }
+
     pub fn prepare(&self) {
         self.inner.prepare();
     }
@@ -126,6 +113,7 @@ impl IdMapIndex {
             self.inner.bits(),
             self.inner.dim(),
             self.inner.len(),
+            self.inner.rotation_kind(),
             self.inner.seed(),
             self.inner.packed_codes(),
             self.inner.norms(),
@@ -134,10 +122,11 @@ impl IdMapIndex {
     }
 
     pub fn load(path: impl AsRef<Path>) -> std::io::Result<Self> {
-        let (bits, dim, n_vectors, seed, packed_codes, norms, slot_to_id) =
+        let (bits, dim, n_vectors, rotation, seed, packed_codes, norms, slot_to_id) =
             io::load_id_map(path)?;
-        let inner =
-            RotorQuantIndex::from_parts(dim, bits, n_vectors, seed, packed_codes, norms);
+        let inner = RotorQuantIndex::from_parts(
+            dim, bits, rotation, n_vectors, seed, packed_codes, norms,
+        );
         let id_to_slot: HashMap<u64, usize> =
             slot_to_id.iter().enumerate().map(|(s, &id)| (id, s)).collect();
         if id_to_slot.len() != slot_to_id.len() {
