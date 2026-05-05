@@ -71,9 +71,7 @@ fn score_one_query(
         if heap.len() < k {
             heap.push((score, vi));
             if heap.len() == k {
-                heap.sort_unstable_by(|a, b| {
-                    a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal)
-                });
+                heap.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
             }
         } else if score > heap[0].0 {
             heap[0] = (score, vi);

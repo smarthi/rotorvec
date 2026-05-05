@@ -33,7 +33,11 @@ impl IdMapIndex {
     pub fn add_with_ids(&mut self, vectors: &[f32], ids: &[u64]) {
         let dim = self.inner.dim();
         let n = vectors.len() / dim;
-        assert_eq!(vectors.len(), n * dim, "vector buffer not a multiple of dim");
+        assert_eq!(
+            vectors.len(),
+            n * dim,
+            "vector buffer not a multiple of dim"
+        );
         assert_eq!(ids.len(), n, "expected {n} ids, got {}", ids.len());
 
         self.id_to_slot.reserve(n);
@@ -124,17 +128,23 @@ impl IdMapIndex {
     pub fn load(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let (bits, dim, n_vectors, rotation, seed, packed_codes, norms, slot_to_id) =
             io::load_id_map(path)?;
-        let inner = RotorQuantIndex::from_parts(
-            dim, bits, rotation, n_vectors, seed, packed_codes, norms,
-        );
-        let id_to_slot: HashMap<u64, usize> =
-            slot_to_id.iter().enumerate().map(|(s, &id)| (id, s)).collect();
+        let inner =
+            RotorQuantIndex::from_parts(dim, bits, rotation, n_vectors, seed, packed_codes, norms);
+        let id_to_slot: HashMap<u64, usize> = slot_to_id
+            .iter()
+            .enumerate()
+            .map(|(s, &id)| (id, s))
+            .collect();
         if id_to_slot.len() != slot_to_id.len() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "duplicate ids in .rvim file",
             ));
         }
-        Ok(Self { inner, slot_to_id, id_to_slot })
+        Ok(Self {
+            inner,
+            slot_to_id,
+            id_to_slot,
+        })
     }
 }

@@ -72,7 +72,9 @@ pub fn random_rotor(rng: &mut ChaCha8Rng) -> Rotor {
     let b12 = gauss(rng);
     let b13 = gauss(rng);
     let b23 = gauss(rng);
-    let n = (s * s + b12 * b12 + b13 * b13 + b23 * b23).sqrt().max(1e-30);
+    let n = (s * s + b12 * b12 + b13 * b13 + b23 * b23)
+        .sqrt()
+        .max(1e-30);
     [s / n, b12 / n, b13 / n, b23 / n]
 }
 
@@ -129,12 +131,7 @@ pub fn quaternion_to_so4(q: &Quat) -> [f32; 16] {
     let x = q[1];
     let y = q[2];
     let z = q[3];
-    [
-        w, -x, -y, -z,
-        x,  w, -z,  y,
-        y,  z,  w, -x,
-        z, -y,  x,  w,
-    ]
+    [w, -x, -y, -z, x, w, -z, y, y, z, w, -x, z, -y, x, w]
 }
 
 /// Generate a deterministic block-diagonal rotation field for an index.
@@ -199,8 +196,7 @@ mod tests {
         let det: f32 = match n {
             2 => m[0] * m[3] - m[1] * m[2],
             3 => {
-                m[0] * (m[4] * m[8] - m[5] * m[7])
-                    - m[1] * (m[3] * m[8] - m[5] * m[6])
+                m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6])
                     + m[2] * (m[3] * m[7] - m[4] * m[6])
             }
             4 => {
@@ -235,8 +231,7 @@ mod tests {
     fn all_variants_orthogonal_and_proper() {
         for &kind in &[Rotation::Planar2, Rotation::Rotor3, Rotation::Iso4] {
             let bs = kind.block_size();
-            let (mats, n_groups, padded) =
-                precompute_block_matrices(bs * 5, kind, 42);
+            let (mats, n_groups, padded) = precompute_block_matrices(bs * 5, kind, 42);
             assert_eq!(n_groups, 5);
             assert_eq!(padded, bs * 5);
             for g in 0..n_groups {

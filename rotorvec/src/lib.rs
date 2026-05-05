@@ -1,3 +1,10 @@
+// Stylistic lints that don't reflect real bugs in this codebase.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::needless_range_loop
+)]
+
 //! RotorQuant vector index — block-diagonal Clifford-rotor quantization.
 //!
 //! Three rotation variants:
@@ -100,7 +107,11 @@ impl RotorQuantIndex {
 
     pub fn add(&mut self, vectors: &[f32]) {
         let n = vectors.len() / self.dim;
-        assert_eq!(vectors.len(), n * self.dim, "vectors length not a multiple of dim");
+        assert_eq!(
+            vectors.len(),
+            n * self.dim,
+            "vectors length not a multiple of dim"
+        );
         if n == 0 {
             return;
         }
@@ -150,7 +161,12 @@ impl RotorQuantIndex {
             )
         };
 
-        SearchResults { scores, indices, nq, k }
+        SearchResults {
+            scores,
+            indices,
+            nq,
+            k,
+        }
     }
 
     pub fn prepare(&self) {
@@ -173,7 +189,15 @@ impl RotorQuantIndex {
 
     pub fn load(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let (bits, dim, n_vectors, rotation, seed, packed_codes, norms) = io::load(path)?;
-        Ok(Self::from_parts(dim, bits, rotation, n_vectors, seed, packed_codes, norms))
+        Ok(Self::from_parts(
+            dim,
+            bits,
+            rotation,
+            n_vectors,
+            seed,
+            packed_codes,
+            norms,
+        ))
     }
 
     pub(crate) fn from_parts(

@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity, clippy::manual_checked_ops)]
+
 //! Python bindings for rotorvec via PyO3.
 //!
 //! Exposes:

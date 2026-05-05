@@ -77,7 +77,16 @@ pub fn write_id_map(
 
 pub fn load_id_map(
     path: impl AsRef<Path>,
-) -> io::Result<(usize, usize, usize, Rotation, u64, Vec<u8>, Vec<f32>, Vec<u64>)> {
+) -> io::Result<(
+    usize,
+    usize,
+    usize,
+    Rotation,
+    u64,
+    Vec<u8>,
+    Vec<f32>,
+    Vec<u64>,
+)> {
     let mut f = BufReader::new(File::open(path)?);
     expect_magic(&mut f, RVIM_MAGIC, "RVIM")?;
     let (bits, rotation, dim, n_vectors, packed_codes, norms) = read_core(&mut f)?;
@@ -90,7 +99,16 @@ pub fn load_id_map(
         f.read_exact(&mut buf)?;
         slot_to_id.push(u64::from_le_bytes(buf));
     }
-    Ok((bits, dim, n_vectors, rotation, seed, packed_codes, norms, slot_to_id))
+    Ok((
+        bits,
+        dim,
+        n_vectors,
+        rotation,
+        seed,
+        packed_codes,
+        norms,
+        slot_to_id,
+    ))
 }
 
 fn expect_magic<R: Read>(r: &mut R, want: &[u8; 4], name: &str) -> io::Result<()> {
@@ -133,9 +151,7 @@ fn write_core<W: Write>(
     Ok(())
 }
 
-fn read_core<R: Read>(
-    r: &mut R,
-) -> io::Result<(usize, Rotation, usize, usize, Vec<u8>, Vec<f32>)> {
+fn read_core<R: Read>(r: &mut R) -> io::Result<(usize, Rotation, usize, usize, Vec<u8>, Vec<f32>)> {
     let mut header = [0u8; CORE_HEADER_SIZE];
     r.read_exact(&mut header)?;
     let bits = header[0] as usize;

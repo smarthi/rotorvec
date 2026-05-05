@@ -1,5 +1,10 @@
 # rotorvec
 
+[![CI](https://github.com/suneelmarthi/rotorvec/actions/workflows/ci.yml/badge.svg)](https://github.com/suneelmarthi/rotorvec/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/rotorvec?label=pypi&color=blue)](https://pypi.org/project/rotorvec/)
+[![crates.io](https://img.shields.io/crates/v/rotorvec?label=crates.io&color=blue)](https://crates.io/crates/rotorvec)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A vector index built on **block-diagonal rotor quantization** — a family of
 data-oblivious quantizers that swap TurboQuant's dense d×d random orthogonal
 matrix for small per-block rotations from Clifford algebra. Inspired by
@@ -143,6 +148,39 @@ This is a Cargo workspace with two members:
 Run the Rust test suite with `cargo test -p rotorvec --release`. Run the
 Python suite with `cd rotorvec-python && pytest tests/` after `maturin
 develop`.
+
+## CI / Release
+
+Three GitHub Actions workflows live in [`.github/workflows/`](.github/workflows):
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | every push to `main` and every PR | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pytest` across Python 3.9 / 3.12 / 3.13 on Linux + macOS |
+| [`release-pypi.yml`](.github/workflows/release-pypi.yml) | tag `py-vX.Y.Z` | Builds wheels for Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x64; builds sdist; publishes to PyPI via OIDC trusted publishing |
+| [`release-crates.yml`](.github/workflows/release-crates.yml) | tag `vX.Y.Z` | `cargo publish -p rotorvec` to crates.io via OIDC trusted publishing |
+
+Tagging convention:
+
+```bash
+# Rust crate release
+git tag v0.1.1 && git push origin v0.1.1
+
+# Python wheel release (independent versioning)
+git tag py-v0.1.1 && git push origin py-v0.1.1
+```
+
+**One-time PyPI / crates.io setup** (see each registry's docs for the
+exact UI):
+
+1. **PyPI**: create the project on [pypi.org](https://pypi.org/manage/account/publishing/),
+   add a "pending publisher" pointing at `suneelmarthi/rotorvec`, workflow
+   `release-pypi.yml`, environment `pypi`. Then create a GitHub
+   environment named `pypi` on the repo (Settings → Environments).
+2. **crates.io**: configure OIDC trusted publishing in your crates.io
+   account settings, scoped to the same repo + workflow + environment
+   (`crates-io`). Create the matching GitHub environment.
+
+Once configured, neither workflow needs API tokens stored as secrets.
 
 ## Status
 
