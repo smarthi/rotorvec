@@ -1,10 +1,12 @@
 [package]
 name = "rotorvec-python"
 version = "0.1.0"
+description = "Python bindings for rotorvec — Clifford-rotor block-diagonal vector quantization"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [lib]
 name = "_rotorvec"

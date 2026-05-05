@@ -38,16 +38,8 @@ jobs:
           path: rotorvec-python/dist
 
   macos:
-    name: macOS ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64
-            runner: macos-14
-          - target: x86_64
-            runner: macos-13
+    name: macOS aarch64
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,12 +48,12 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
+          target: aarch64
           args: --release --out dist
           working-directory: rotorvec-python
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.target }}
+          name: wheels-macos-aarch64
           path: rotorvec-python/dist
 
   windows:
