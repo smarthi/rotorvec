@@ -45,17 +45,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install build deps
+          enable-cache: true
+      - name: Create venv with target Python
         working-directory: rotorvec-python
-        run: |
-          python -m pip install --upgrade pip
-          pip install maturin numpy pytest
-      - name: Build extension (editable)
+        run: uv venv --python ${{ matrix.python-version }}
+      - name: Install package (builds via maturin backend) + pytest
         working-directory: rotorvec-python
-        run: maturin develop --release
+        run: uv pip install -e . pytest
       - name: Run pytest
         working-directory: rotorvec-python
-        run: pytest tests/ -v
+        run: uv run pytest tests/ -v

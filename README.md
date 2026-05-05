@@ -29,15 +29,19 @@ O(d²) FMAs per vector. All three rotorvec variants are O(d) per vector.
 
 ### Python
 
-Build the extension locally with [maturin](https://github.com/PyO3/maturin)
-(a published wheel is on the v0.2 roadmap):
+Build the extension locally with [uv](https://github.com/astral-sh/uv)
+(a published wheel is on the v0.2 roadmap). uv handles the venv, pulls
+in `maturin` as the PEP 517 build backend automatically, and produces
+an editable install:
 
 ```bash
 cd rotorvec-python
-python -m venv .venv && source .venv/bin/activate
-pip install maturin numpy
-maturin develop --release
+uv venv --python 3.12
+uv pip install -e .
 ```
+
+Then either activate the venv (`source .venv/bin/activate`) or prefix
+your commands with `uv run` (e.g. `uv run pytest tests/`).
 
 Then:
 
@@ -146,8 +150,8 @@ This is a Cargo workspace with two members:
 * [`rotorvec-python/`](rotorvec-python) — PyO3 bindings (`import rotorvec`).
 
 Run the Rust test suite with `cargo test -p rotorvec --release`. Run the
-Python suite with `cd rotorvec-python && pytest tests/` after `maturin
-develop`.
+Python suite with `cd rotorvec-python && uv run pytest tests/` (after
+`uv pip install -e .`).
 
 ## CI / Release
 
