@@ -59,4 +59,4 @@ pip install rotorvec
 
 ## License
 
-MIT — see [LICENSE](https://github.com/suneelmarthi/rotorvec/blob/main/LICENSE).
+MIT — see [LICENSE](https://github.com/smarthi/rotorvec/blob/main/LICENSE).

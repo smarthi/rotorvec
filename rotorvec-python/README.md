@@ -62,7 +62,7 @@ work).
 ## Development
 
 ```bash
-git clone https://github.com/suneelmarthi/rotorvec
+git clone https://github.com/smarthi/rotorvec
 cd rotorvec/rotorvec-python
 uv venv --python 3.10
 uv pip install -e .
@@ -71,4 +71,4 @@ uv run pytest tests/
 
 ## License
 
-MIT — see [LICENSE](https://github.com/suneelmarthi/rotorvec/blob/main/LICENSE).
+MIT — see [LICENSE](https://github.com/smarthi/rotorvec/blob/main/LICENSE).
