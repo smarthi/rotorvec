@@ -167,17 +167,17 @@ Tagging convention:
 
 ```bash
 # Rust crate release
-git tag v0.1.1 && git push origin v0.1.1
+git tag v0.2.0 && git push origin v0.2.0
 
 # Python wheel release (independent versioning)
-git tag py-v0.1.1 && git push origin py-v0.1.1
+git tag py-v0.2.0 && git push origin py-v0.2.0
 ```
 
 **One-time PyPI / crates.io setup** (see each registry's docs for the
 exact UI):
 
 1. **PyPI**: create the project on [pypi.org](https://pypi.org/manage/account/publishing/),
-   add a "pending publisher" pointing at `suneelmarthi/rotorvec`, workflow
+   add a "pending publisher" pointing at `smarthi/rotorvec`, workflow
    `release-pypi.yml`, environment `pypi`. Then create a GitHub
    environment named `pypi` on the repo (Settings → Environments).
 2. **crates.io**: configure OIDC trusted publishing in your crates.io

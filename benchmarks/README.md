@@ -73,7 +73,7 @@ exceed turbovec at both d=128 and d=768. The "rotorvec algorithm is
 sound for general embeddings" hypothesis from v0.1's README is supported
 by this initial data.
 
-**Rotor3 padding fix landed in v0.1.2.** Earlier benchmarks showed
+**Rotor3 padding fix landed in v0.2.0.** Earlier benchmarks showed
 Rotor3 trailing Planar2/Iso4 by ~5 percentage points at d=128 because
 128 isn't divisible by 3 — the last 3-block was `[v_127, 0, 0]` and
 rotation mixed real data into the padded coordinate we then dropped.
