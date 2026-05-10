@@ -290,7 +290,10 @@ mod tests {
 
         // Earlier blocks should NOT be identity (vanishingly unlikely from RNG).
         let first = &mats[0..9];
-        assert_ne!(first, &identity_3x3, "first block should be a real rotation");
+        assert_ne!(
+            first, &identity_3x3,
+            "first block should be a real rotation"
+        );
     }
 
     #[test]
@@ -327,8 +330,18 @@ mod tests {
 
         // Indices 126 and 127 (the real coords inside the trailing partial
         // block) must survive untouched. Index 128 (padded) stays zero.
-        assert!((v[126] - v_in[126]).abs() < 1e-6, "v[126] changed: {} -> {}", v_in[126], v[126]);
-        assert!((v[127] - v_in[127]).abs() < 1e-6, "v[127] changed: {} -> {}", v_in[127], v[127]);
+        assert!(
+            (v[126] - v_in[126]).abs() < 1e-6,
+            "v[126] changed: {} -> {}",
+            v_in[126],
+            v[126]
+        );
+        assert!(
+            (v[127] - v_in[127]).abs() < 1e-6,
+            "v[127] changed: {} -> {}",
+            v_in[127],
+            v[127]
+        );
         assert!(v[128].abs() < 1e-6, "padded coord should stay zero");
     }
 

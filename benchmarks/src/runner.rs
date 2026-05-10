@@ -69,7 +69,16 @@ pub fn run(
             let t1 = Instant::now();
             let res = idx.search(queries, k);
             let search = t1.elapsed().as_secs_f64();
-            return Ok(finish(method, bits, build, search, n_queries, k, &res.indices, truth));
+            return Ok(finish(
+                method,
+                bits,
+                build,
+                search,
+                n_queries,
+                k,
+                &res.indices,
+                truth,
+            ));
         }
         Method::RvPlanar2 => build_rv(Rotation::Planar2, train, dim, bits),
         Method::RvRotor3 => build_rv(Rotation::Rotor3, train, dim, bits),
@@ -80,15 +89,19 @@ pub fn run(
     let t1 = Instant::now();
     let res = idx.search(queries, k);
     let search = t1.elapsed().as_secs_f64();
-    Ok(finish(method, bits, build, search, n_queries, k, &res.indices, truth))
+    Ok(finish(
+        method,
+        bits,
+        build,
+        search,
+        n_queries,
+        k,
+        &res.indices,
+        truth,
+    ))
 }
 
-fn build_rv(
-    rotation: Rotation,
-    train: &[f32],
-    dim: usize,
-    bits: usize,
-) -> (RotorQuantIndex, f64) {
+fn build_rv(rotation: Rotation, train: &[f32], dim: usize, bits: usize) -> (RotorQuantIndex, f64) {
     let t0 = Instant::now();
     let mut idx = RotorQuantIndex::with_rotation(dim, bits, rotation);
     idx.add(train);

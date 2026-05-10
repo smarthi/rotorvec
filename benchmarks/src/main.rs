@@ -141,7 +141,11 @@ fn main() -> Result<()> {
         p.push(format!("{}_{}bit.md", dataset_name, cli.bits));
         p
     });
-    fs::create_dir_all(out_path.parent().unwrap_or_else(|| std::path::Path::new(".")))?;
+    fs::create_dir_all(
+        out_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(".")),
+    )?;
     fs::write(&out_path, &md)?;
     eprintln!("Wrote {}", out_path.display());
 
@@ -166,11 +170,7 @@ fn parse_dataset(spec: &str) -> Result<Dataset> {
                 .map(|s| s.parse())
                 .transpose()?
                 .unwrap_or(100_000);
-            let dim: usize = parts
-                .next()
-                .map(|s| s.parse())
-                .transpose()?
-                .unwrap_or(128);
+            let dim: usize = parts.next().map(|s| s.parse()).transpose()?.unwrap_or(128);
             if dim % 8 != 0 {
                 anyhow::bail!("random dataset dim must be a multiple of 8 (got {dim})");
             }

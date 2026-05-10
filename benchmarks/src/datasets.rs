@@ -10,7 +10,7 @@
 //! from the first record and skip the per-record dim header on subsequent
 //! reads.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read};
@@ -25,7 +25,10 @@ pub enum Dataset {
     /// Synthetic standard-Gaussian unit vectors. Useful for rapid
     /// iteration and for isolating algorithm behavior from
     /// dataset-specific quirks (clusters, hubness, low-rank manifolds).
-    Random { n: usize, dim: usize },
+    Random {
+        n: usize,
+        dim: usize,
+    },
 }
 
 impl Dataset {
@@ -45,9 +48,9 @@ impl Dataset {
 }
 
 pub struct Loaded {
-    pub train: Vec<f32>,    // n_train * dim
+    pub train: Vec<f32>, // n_train * dim
     pub n_train: usize,
-    pub queries: Vec<f32>,  // n_queries * dim
+    pub queries: Vec<f32>, // n_queries * dim
     pub n_queries: usize,
     pub dim: usize,
     /// Optional precomputed ground-truth top-k indices, `n_queries * k_gt`.
@@ -58,8 +61,7 @@ pub struct Loaded {
 }
 
 pub fn cache_dir() -> Result<PathBuf> {
-    let base = dirs::cache_dir()
-        .ok_or_else(|| anyhow!("could not locate user cache dir"))?;
+    let base = dirs::cache_dir().ok_or_else(|| anyhow!("could not locate user cache dir"))?;
     let dir = base.join("rotorvec").join("datasets");
     fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -149,10 +151,8 @@ fn download_and_extract_sift(dest: &Path) -> Result<()> {
         };
         if len.is_some() {
             pb.set_style(
-                ProgressStyle::with_template(
-                    "{spinner} {wide_bar} {bytes}/{total_bytes} ({eta})",
-                )
-                .unwrap(),
+                ProgressStyle::with_template("{spinner} {wide_bar} {bytes}/{total_bytes} ({eta})")
+                    .unwrap(),
             );
         }
 
@@ -197,13 +197,19 @@ pub fn read_fvecs(path: &Path) -> Result<Vec<f32>> {
     // First record: read dim floats (header already consumed).
     let mut buf = vec![0u8; dim * 4];
     f.read_exact(&mut buf)?;
-    out.extend(buf.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+    out.extend(
+        buf.chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+    );
 
     // Remaining records: skip dim header, read floats.
     for _ in 1..n {
         f.read_exact(&mut header)?;
         f.read_exact(&mut buf)?;
-        out.extend(buf.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+        out.extend(
+            buf.chunks_exact(4)
+                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+        );
     }
 
     Ok(out)
@@ -229,12 +235,18 @@ pub fn read_ivecs(path: &Path) -> Result<(Vec<i32>, usize)> {
 
     let mut buf = vec![0u8; k * 4];
     f.read_exact(&mut buf)?;
-    out.extend(buf.chunks_exact(4).map(|b| i32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+    out.extend(
+        buf.chunks_exact(4)
+            .map(|b| i32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+    );
 
     for _ in 1..n {
         f.read_exact(&mut header)?;
         f.read_exact(&mut buf)?;
-        out.extend(buf.chunks_exact(4).map(|b| i32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+        out.extend(
+            buf.chunks_exact(4)
+                .map(|b| i32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+        );
     }
 
     Ok((out, k))

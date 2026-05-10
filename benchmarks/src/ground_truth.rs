@@ -38,28 +38,22 @@ pub fn compute_or_load(
         return load(&path, k);
     }
 
-    eprintln!(
-        "Computing ground truth: n_train={n_train} n_queries={n_queries} d={dim} k={k}"
-    );
+    eprintln!("Computing ground truth: n_train={n_train} n_queries={n_queries} d={dim} k={k}");
     let pb = ProgressBar::new(n_queries as u64);
     pb.set_style(
-        ProgressStyle::with_template("{spinner} {wide_bar} {pos}/{len} queries ({eta})")
-            .unwrap(),
+        ProgressStyle::with_template("{spinner} {wide_bar} {pos}/{len} queries ({eta})").unwrap(),
     );
 
     let mut indices = vec![-1i32; n_queries * k];
     let pb_ref = &pb;
-    indices
-        .par_chunks_mut(k)
-        .enumerate()
-        .for_each(|(qi, out)| {
-            let q = &queries[qi * dim..(qi + 1) * dim];
-            let topk = brute_force_top_k(q, train, n_train, dim, k);
-            for (slot, (_, idx)) in topk.into_iter().enumerate() {
-                out[slot] = idx as i32;
-            }
-            pb_ref.inc(1);
-        });
+    indices.par_chunks_mut(k).enumerate().for_each(|(qi, out)| {
+        let q = &queries[qi * dim..(qi + 1) * dim];
+        let topk = brute_force_top_k(q, train, n_train, dim, k);
+        for (slot, (_, idx)) in topk.into_iter().enumerate() {
+            out[slot] = idx as i32;
+        }
+        pb_ref.inc(1);
+    });
     pb.finish_with_message("done");
 
     save(&path, &indices, k)?;
@@ -86,9 +80,7 @@ fn brute_force_top_k(
         if top.len() < k {
             top.push((s, vi));
             if top.len() == k {
-                top.sort_unstable_by(|a, b| {
-                    a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal)
-                });
+                top.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
             }
         } else if s > top[0].0 {
             top[0] = (s, vi);
@@ -164,7 +156,9 @@ pub fn recall_at_k(approx: &[i64], truth: &[i32], k: usize) -> f64 {
             let a = &approx[qi * k..(qi + 1) * k];
             let t = &truth[qi * k..(qi + 1) * k];
             let truth_set: std::collections::HashSet<i32> = t.iter().copied().collect();
-            a.iter().filter(|&&x| truth_set.contains(&(x as i32))).count()
+            a.iter()
+                .filter(|&&x| truth_set.contains(&(x as i32)))
+                .count()
         })
         .sum();
 
