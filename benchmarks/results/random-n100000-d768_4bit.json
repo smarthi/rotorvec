@@ -1,0 +1,42 @@
+[
+  {
+    "method": "turbovec",
+    "bits": 4,
+    "build_secs": 3.432162083,
+    "search_secs": 0.093326166,
+    "queries": 1000,
+    "qps": 10715.108558086486,
+    "recall_at_k": 0.8138,
+    "k": 10
+  },
+  {
+    "method": "rotorvec planar2",
+    "bits": 4,
+    "build_secs": 1.5607524160000001,
+    "search_secs": 16.82121975,
+    "queries": 1000,
+    "qps": 59.44872101204194,
+    "recall_at_k": 0.8332,
+    "k": 10
+  },
+  {
+    "method": "rotorvec rotor3",
+    "bits": 4,
+    "build_secs": 1.566857709,
+    "search_secs": 17.844497167,
+    "queries": 1000,
+    "qps": 56.039684987555134,
+    "recall_at_k": 0.8288,
+    "k": 10
+  },
+  {
+    "method": "rotorvec iso4",
+    "bits": 4,
+    "build_secs": 1.4823655,
+    "search_secs": 17.583178042,
+    "queries": 1000,
+    "qps": 56.87254019787284,
+    "recall_at_k": 0.8289,
+    "k": 10
+  }
+]

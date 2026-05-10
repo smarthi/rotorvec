@@ -1,5 +1,5 @@
 [workspace]
-members = ["rotorvec", "rotorvec-python"]
+members = ["rotorvec", "rotorvec-python", "benchmarks"]
 resolver = "2"
 
 [workspace.package]
