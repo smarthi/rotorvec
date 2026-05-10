@@ -141,6 +141,16 @@ pub fn quaternion_to_so4(q: &Quat) -> [f32; 16] {
 /// * `n_groups` — `ceil(dim / block_size)`.
 /// * `padded_dim` — `n_groups * block_size`. The caller should zero-pad input
 ///   vectors out to this length before applying the rotation.
+///
+/// **Trailing partial block:** if `dim` is not a multiple of `block_size`
+/// (only possible for [`Rotation::Rotor3`] under our `dim % 8 == 0`
+/// constraint, since 2 and 4 both divide 8 but 3 does not), the last block
+/// gets an identity matrix instead of a random rotation. Without this, the
+/// last block rotates real coordinates into the zero-padded tail — when we
+/// drop the tail before quantization, that rotation throws away signal.
+/// Identity preserves the real coordinates untouched at the cost of not
+/// decorrelating them within the trailing block (small effect, since at
+/// most `block_size - 1` coords are involved).
 pub fn precompute_block_matrices(
     dim: usize,
     kind: Rotation,
@@ -150,11 +160,25 @@ pub fn precompute_block_matrices(
     let n_groups = dim.div_ceil(bs);
     let padded_dim = n_groups * bs;
     let mat_stride = bs * bs;
+    let has_partial_last = dim % bs != 0;
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut matrices = vec![0.0f32; n_groups * mat_stride];
 
     for g in 0..n_groups {
         let m = &mut matrices[g * mat_stride..(g + 1) * mat_stride];
+
+        if has_partial_last && g == n_groups - 1 {
+            // Identity for the partial trailing block — see doc comment.
+            // Note: we deliberately *don't* draw from `rng` here, so an
+            // index built with `dim` evenly divisible by `bs` and one
+            // built with the same seed but a smaller `dim` produce
+            // bit-identical rotations on their shared full blocks.
+            for i in 0..bs {
+                m[i * bs + i] = 1.0;
+            }
+            continue;
+        }
+
         match kind {
             Rotation::Planar2 => {
                 let theta = rng.gen::<f32>() * TAU;
@@ -251,6 +275,61 @@ mod tests {
             let (c, _, _) = precompute_block_matrices(60, kind, 43);
             assert_ne!(a, c);
         }
+    }
+
+    #[test]
+    fn rotor3_trailing_partial_block_is_identity() {
+        // dim=128 isn't divisible by 3 — last block (g=42) should be I.
+        let (mats, n_groups, padded) = precompute_block_matrices(128, Rotation::Rotor3, 42);
+        assert_eq!(n_groups, 43);
+        assert_eq!(padded, 129);
+
+        let last = &mats[(n_groups - 1) * 9..n_groups * 9];
+        let identity_3x3: [f32; 9] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        assert_eq!(last, &identity_3x3, "trailing partial block should be I");
+
+        // Earlier blocks should NOT be identity (vanishingly unlikely from RNG).
+        let first = &mats[0..9];
+        assert_ne!(first, &identity_3x3, "first block should be a real rotation");
+    }
+
+    #[test]
+    fn rotor3_full_block_dim_unchanged() {
+        // dim divisible by 3 — every block is a real rotation.
+        let (mats, n_groups, padded) = precompute_block_matrices(126, Rotation::Rotor3, 42);
+        assert_eq!(n_groups, 42);
+        assert_eq!(padded, 126);
+
+        let identity_3x3: [f32; 9] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        for g in 0..n_groups {
+            let m = &mats[g * 9..(g + 1) * 9];
+            check_orthogonal(m, 3);
+            check_det_plus_one(m, 3);
+            assert_ne!(m, &identity_3x3, "block {g} should be a real rotation");
+        }
+    }
+
+    #[test]
+    fn rotor3_partial_block_preserves_real_coords() {
+        // After block rotation, the trailing real coords should be exactly
+        // the input values — no contamination from the zero-padded tail.
+        use crate::rotation::rotate_inplace;
+
+        let dim = 128;
+        let (mats, _, padded) = precompute_block_matrices(dim, Rotation::Rotor3, 42);
+        // Zero-padded input: last real coord is index 127, padded index 128 = 0.
+        let mut v = vec![0.0f32; padded];
+        for j in 0..dim {
+            v[j] = (j as f32) * 0.01 + 0.5;
+        }
+        let v_in = v.clone();
+        rotate_inplace(&mats, 3, &mut v);
+
+        // Indices 126 and 127 (the real coords inside the trailing partial
+        // block) must survive untouched. Index 128 (padded) stays zero.
+        assert!((v[126] - v_in[126]).abs() < 1e-6, "v[126] changed: {} -> {}", v_in[126], v[126]);
+        assert!((v[127] - v_in[127]).abs() < 1e-6, "v[127] changed: {} -> {}", v_in[127], v[127]);
+        assert!(v[128].abs() < 1e-6, "padded coord should stay zero");
     }
 
     #[test]

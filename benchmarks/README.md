@@ -59,27 +59,27 @@ and disk-cached separately (see `ground_truth.rs`).
 
 | Method | Recall@10 | Build (s) | QPS |
 |---|---:|---:|---:|
-| turbovec        | 0.820 | 0.41 | 89,370 |
-| rotorvec planar2 | **0.828** | **0.26** | 663 |
-| rotorvec rotor3  | 0.782 | 0.27 | 653 |
-| rotorvec iso4    | 0.826 | 0.25 | 662 |
+| turbovec        | 0.820 | 0.41 | 80,851 |
+| rotorvec planar2 | **0.828** | **0.26** | 652 |
+| rotorvec rotor3  | 0.827 | 0.26 | 637 |
+| rotorvec iso4    | 0.826 | 0.27 | 619 |
 
 ### What this tells us
 
 **Recall: rotorvec is competitive.** Block-diagonal rotation gives recall
 that matches turbovec's full d×d random rotation on synthetic Gaussian
-unit-vector data. Two of the three variants (Planar2, Iso4) consistently
-match or slightly exceed turbovec at both d=128 and d=768. The "rotorvec
-algorithm is sound for general embeddings" hypothesis from v0.1's README
-is supported by this initial data.
+unit-vector data. All three variants consistently match or slightly
+exceed turbovec at both d=128 and d=768. The "rotorvec algorithm is
+sound for general embeddings" hypothesis from v0.1's README is supported
+by this initial data.
 
-**Rotor3 underperforms at d=128.** The Cl(3,0) variant lags by ~5
-percentage points at d=128. Most likely cause: 128 isn't divisible by 3,
-so the last 3-block is `[v_127, 0, 0]` zero-padded. Block rotation mixes
-real data into padded coordinates that we then drop. At d=768
-(divisible by 3) the gap closes — supporting that diagnosis.
-**Action item:** either avoid Rotor3 when `dim % 3 != 0`, or implement
-"residual-aware" rotation that doesn't waste bits on padded coords.
+**Rotor3 padding fix landed in v0.1.2.** Earlier benchmarks showed
+Rotor3 trailing Planar2/Iso4 by ~5 percentage points at d=128 because
+128 isn't divisible by 3 — the last 3-block was `[v_127, 0, 0]` and
+rotation mixed real data into the padded coordinate we then dropped.
+v0.1.2 uses an identity matrix for the trailing partial block (real
+coords pass through untouched, no info loss to padding). Recall jumped
+from 0.782 → 0.827 at d=128.
 
 **Build: rotorvec is 2× faster.** No BLAS GEMM, just block-diagonal 3×3
 (or smaller) matmuls. Expected.

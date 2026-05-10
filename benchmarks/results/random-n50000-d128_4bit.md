@@ -2,7 +2,7 @@
 
 | Method | Bits | Recall@10 | Build (s) | Search (s) | QPS |
 |---|---:|---:|---:|---:|---:|
-| turbovec | 4 | 0.820 | 0.41 | 0.01 | 89370 |
-| rotorvec planar2 | 4 | 0.828 | 0.26 | 1.51 | 663 |
-| rotorvec rotor3 | 4 | 0.782 | 0.27 | 1.53 | 653 |
-| rotorvec iso4 | 4 | 0.826 | 0.25 | 1.51 | 662 |
+| turbovec | 4 | 0.820 | 0.41 | 0.01 | 80851 |
+| rotorvec planar2 | 4 | 0.828 | 0.26 | 1.53 | 652 |
+| rotorvec rotor3 | 4 | 0.827 | 0.26 | 1.57 | 637 |
+| rotorvec iso4 | 4 | 0.826 | 0.27 | 1.62 | 619 |
