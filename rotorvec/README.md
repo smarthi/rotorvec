@@ -9,7 +9,7 @@ A block-diagonal cousin of [turbovec](https://github.com/RyanCodrai/turbovec)
 random rotation is replaced by small per-block rotors — O(d) work, ~d
 parameters, no BLAS dependency.
 
-See the [main repo README](https://github.com/suneelmarthi/rotorvec) for
+See the [main repo README](https://github.com/smarthi/rotorvec) for
 the full algorithm description, attribution, and benchmarks.
 
 ## Install

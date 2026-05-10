@@ -1,11 +1,11 @@
 [package]
 name = "rotorvec"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.74"
 description = "Vector index using Clifford-rotor block-diagonal quantization (RotorQuant)"
 license = "MIT"
-repository = "https://github.com/suneelmarthi/rotorvec"
+repository = "https://github.com/smarthi/rotorvec"
 readme = "README.md"
 keywords = ["vector-search", "quantization", "clifford", "rotor", "ann"]
 categories = ["algorithms", "science", "compression"]

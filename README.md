@@ -1,6 +1,6 @@
 # rotorvec
 
-[![CI](https://github.com/suneelmarthi/rotorvec/actions/workflows/ci.yml/badge.svg)](https://github.com/suneelmarthi/rotorvec/actions/workflows/ci.yml)
+[![CI](https://github.com/smarthi/rotorvec/actions/workflows/ci.yml/badge.svg)](https://github.com/smarthi/rotorvec/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/rotorvec?label=pypi&color=blue)](https://pypi.org/project/rotorvec/)
 [![crates.io](https://img.shields.io/crates/v/rotorvec?label=crates.io&color=blue)](https://crates.io/crates/rotorvec)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

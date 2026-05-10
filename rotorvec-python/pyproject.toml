@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rotorvec"
-version = "0.1.0"
+version = "0.1.1"
 description = "Vector index using Clifford-rotor block-diagonal quantization (PlanarQuant / RotorQuant / IsoQuant)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,9 +43,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/suneelmarthi/rotorvec"
-Repository = "https://github.com/suneelmarthi/rotorvec"
-Issues = "https://github.com/suneelmarthi/rotorvec/issues"
+Homepage = "https://github.com/smarthi/rotorvec"
+Repository = "https://github.com/smarthi/rotorvec"
+Issues = "https://github.com/smarthi/rotorvec/issues"
 
 [tool.maturin]
 manifest-path = "Cargo.toml"

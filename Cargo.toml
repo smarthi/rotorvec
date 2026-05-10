@@ -6,7 +6,7 @@ resolver = "2"
 edition = "2021"
 rust-version = "1.74"
 license = "MIT"
-repository = "https://github.com/suneelmarthi/rotorvec"
+repository = "https://github.com/smarthi/rotorvec"
 
 [profile.release]
 opt-level = 3
