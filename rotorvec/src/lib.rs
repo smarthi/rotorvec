@@ -57,12 +57,18 @@ pub const BLOCK: usize = 32;
 
 /// Flush u16 accumulators to f32 every N byte-groups. With max-per-step = 255
 /// and u16 capacity = 65535, 256 groups fits with margin.
+///
+/// Only referenced from the NEON kernel; unused on x86 builds.
+#[allow(dead_code)]
 pub(crate) const FLUSH_EVERY: usize = 256;
 
 /// SIMD-blocked codes derived from `packed_codes`. Materialized lazily by
 /// `search()` on first call after add(). Currently only used by the NEON
-/// 4-bit path; scalar fallback reads bit-planes directly.
+/// 4-bit path; scalar fallback reads bit-planes directly. Fields are
+/// `#[allow(dead_code)]` because the x86 builds compile this struct but
+/// never touch it.
 pub(crate) struct BlockedCache {
+    #[allow(dead_code)]
     pub(crate) data: Vec<u8>,
     #[allow(dead_code)]
     pub(crate) n_blocks: usize,
