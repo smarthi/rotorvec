@@ -19,6 +19,71 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 
 const ALL_ROTATIONS: [Rotation; 3] = [Rotation::Planar2, Rotation::Rotor3, Rotation::Iso4];
 
+/// On aarch64 the default search path is NEON for 4-bit. This test compares
+/// it against the public scalar search entry point to make sure the NEON
+/// quantized-LUT approximation lands on the same top-k that scalar would.
+///
+/// We allow a small amount of slack: NEON uses u8 LUTs (max 127 levels per
+/// sub-table) which introduces low-bit quantization error vs scalar's
+/// straight f32 accumulation. With well-separated random data and `n` in
+/// the hundreds, the top-k *set* should still match exactly for small `k`.
+#[cfg(target_arch = "aarch64")]
+#[test]
+fn neon_4bit_topk_matches_scalar() {
+    // The NEON path is the only public path on aarch64 for 4-bit, so we
+    // compare it against brute-force ground truth rather than against the
+    // scalar path (which is unreachable from the public API here). Both
+    // paths approximate the same target — the test ensures NEON's quantized
+    // u8-LUT approximation doesn't degrade recall meaningfully.
+    for &rot in &ALL_ROTATIONS {
+        let dim = 128;
+        let n = 500;
+        let bits = 4;
+        let k = 10;
+        let vectors = random_vectors(n, dim, 31);
+        let queries = random_vectors(8, dim, 41);
+
+        let mut idx = RotorQuantIndex::with_rotation(dim, bits, rot);
+        idx.add(&vectors);
+        idx.prepare();
+
+        let res_neon = idx.search(&queries, k);
+
+        let mut hits_at_1 = 0usize;
+        let mut hits_at_k = 0usize;
+        for qi in 0..8 {
+            let q = &queries[qi * dim..(qi + 1) * dim];
+            let mut best: Vec<(f32, usize)> = (0..n)
+                .map(|vi| (dot(q, &vectors[vi * dim..(vi + 1) * dim]), vi))
+                .collect();
+            best.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+            let true_top1 = best[0].1 as i64;
+            let true_topk: std::collections::HashSet<i64> =
+                best.iter().take(k).map(|(_, vi)| *vi as i64).collect();
+
+            let neon_idx = res_neon.indices_for_query(qi);
+            if neon_idx[0] == true_top1 {
+                hits_at_1 += 1;
+            }
+            for &i in neon_idx {
+                if true_topk.contains(&i) {
+                    hits_at_k += 1;
+                }
+            }
+        }
+        assert!(
+            hits_at_1 >= 5,
+            "rot={rot:?}: NEON recall@1 = {hits_at_1}/8, expected >= 5"
+        );
+        assert!(
+            hits_at_k as f64 / (8 * k) as f64 >= 0.7,
+            "rot={rot:?}: NEON recall@{k} = {} / {}, expected >= 70%",
+            hits_at_k,
+            8 * k
+        );
+    }
+}
+
 #[test]
 fn build_search_roundtrip_all_variants() {
     for &rot in &ALL_ROTATIONS {

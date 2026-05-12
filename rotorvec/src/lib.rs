@@ -35,6 +35,9 @@ pub mod rotation;
 pub mod rotor;
 pub mod search;
 
+#[cfg(target_arch = "aarch64")]
+pub(crate) mod search_neon;
+
 pub use id_map::IdMapIndex;
 pub use rotor::Rotation;
 
@@ -47,6 +50,23 @@ pub const DEFAULT_ROTOR_SEED: u64 = 0x0707_04EC_u64;
 
 /// Default rotation kind for [`RotorQuantIndex::new`]: Cl(3,0) rotors.
 pub const DEFAULT_ROTATION: Rotation = Rotation::Rotor3;
+
+/// SIMD block size — 32 vectors processed per kernel invocation. Matches
+/// turbovec's NEON layout exactly so wheels share the same scoring math.
+pub const BLOCK: usize = 32;
+
+/// Flush u16 accumulators to f32 every N byte-groups. With max-per-step = 255
+/// and u16 capacity = 65535, 256 groups fits with margin.
+pub(crate) const FLUSH_EVERY: usize = 256;
+
+/// SIMD-blocked codes derived from `packed_codes`. Materialized lazily by
+/// `search()` on first call after add(). Currently only used by the NEON
+/// 4-bit path; scalar fallback reads bit-planes directly.
+pub(crate) struct BlockedCache {
+    pub(crate) data: Vec<u8>,
+    #[allow(dead_code)]
+    pub(crate) n_blocks: usize,
+}
 
 pub struct SearchResults {
     pub scores: Vec<f32>,
@@ -75,6 +95,9 @@ pub struct RotorQuantIndex {
 
     block_matrices: OnceLock<(Vec<f32>, usize)>, // (matrices, padded_dim)
     centroids: OnceLock<Vec<f32>>,
+    /// SIMD-blocked codes, materialized lazily by `search()`. Invalidated
+    /// on `add()` / `swap_remove()` by replacing the `OnceLock`.
+    blocked: OnceLock<BlockedCache>,
 }
 
 impl RotorQuantIndex {
@@ -102,6 +125,7 @@ impl RotorQuantIndex {
             norms: Vec::new(),
             block_matrices: OnceLock::new(),
             centroids: OnceLock::new(),
+            blocked: OnceLock::new(),
         }
     }
 
@@ -132,6 +156,10 @@ impl RotorQuantIndex {
         self.packed_codes.extend_from_slice(&packed);
         self.norms.extend_from_slice(&norms);
         self.n_vectors += n;
+
+        // Invalidate the SIMD-blocked cache — it was built from the old
+        // packed_codes and no longer matches the extended vector set.
+        self.blocked = OnceLock::new();
     }
 
     pub fn search(&self, queries: &[f32], k: usize) -> SearchResults {
@@ -145,6 +173,32 @@ impl RotorQuantIndex {
         let (scores, indices) = if self.n_vectors == 0 {
             (vec![f32::NEG_INFINITY; nq * k], vec![-1i64; nq * k])
         } else {
+            // SIMD fast-path: aarch64 + 4-bit + NEON kernel.
+            #[cfg(target_arch = "aarch64")]
+            if self.bits == 4 {
+                let blocked = self.ensure_blocked();
+                let (s, i) = search_neon::search_4bit_neon(
+                    queries,
+                    nq,
+                    self.dim,
+                    matrices,
+                    self.rotation.block_size(),
+                    *padded_dim,
+                    &blocked.data,
+                    blocked.n_blocks,
+                    centroids,
+                    &self.norms,
+                    self.n_vectors,
+                    k,
+                );
+                return SearchResults {
+                    scores: s,
+                    indices: i,
+                    nq,
+                    k,
+                };
+            }
+
             search::search(
                 queries,
                 nq,
@@ -172,6 +226,13 @@ impl RotorQuantIndex {
     pub fn prepare(&self) {
         self.ensure_block_matrices();
         self.ensure_centroids();
+        // Eagerly materialize blocked cache too if we're on a path that uses it.
+        #[cfg(target_arch = "aarch64")]
+        {
+            if self.bits == 4 && self.n_vectors > 0 {
+                self.ensure_blocked();
+            }
+        }
     }
 
     pub fn write(&self, path: impl AsRef<Path>) -> std::io::Result<()> {
@@ -219,6 +280,7 @@ impl RotorQuantIndex {
             norms,
             block_matrices: OnceLock::new(),
             centroids: OnceLock::new(),
+            blocked: OnceLock::new(),
         }
     }
 
@@ -250,6 +312,16 @@ impl RotorQuantIndex {
         })
     }
 
+    /// Lazily materialize the SIMD-blocked code layout (4-bit, BLOCK=32).
+    /// Cached until the next mutation. Called from the NEON search path.
+    #[cfg(target_arch = "aarch64")]
+    fn ensure_blocked(&self) -> &BlockedCache {
+        self.blocked.get_or_init(|| {
+            let (data, n_blocks) = pack::repack_4bit(&self.packed_codes, self.n_vectors, self.dim);
+            BlockedCache { data, n_blocks }
+        })
+    }
+
     pub fn swap_remove(&mut self, idx: usize) -> usize {
         assert!(idx < self.n_vectors, "index {idx} out of bounds");
         let bytes_per_vec = self.dim * self.bits / 8;
@@ -263,6 +335,7 @@ impl RotorQuantIndex {
         self.packed_codes.truncate(last * bytes_per_vec);
         self.norms.truncate(last);
         self.n_vectors -= 1;
+        self.blocked = OnceLock::new();
         last
     }
 

@@ -2,41 +2,41 @@
   {
     "method": "turbovec",
     "bits": 4,
-    "build_secs": 3.455624791,
-    "search_secs": 0.094220375,
+    "build_secs": 3.387010667,
+    "search_secs": 0.089905417,
     "queries": 1000,
-    "qps": 10613.415622682462,
+    "qps": 11122.800309129316,
     "recall_at_k": 0.8138,
     "k": 10
   },
   {
     "method": "rotorvec planar2",
     "bits": 4,
-    "build_secs": 1.571606209,
-    "search_secs": 16.622965542,
+    "build_secs": 1.644604625,
+    "search_secs": 0.130925834,
     "queries": 1000,
-    "qps": 60.15773764755603,
-    "recall_at_k": 0.8332,
+    "qps": 7637.912010550951,
+    "recall_at_k": 0.8224,
     "k": 10
   },
   {
     "method": "rotorvec rotor3",
     "bits": 4,
-    "build_secs": 1.559947167,
-    "search_secs": 17.567518333,
+    "build_secs": 1.6351515829999999,
+    "search_secs": 0.135439208,
     "queries": 1000,
-    "qps": 56.9232364551761,
-    "recall_at_k": 0.8288,
+    "qps": 7383.386352938508,
+    "recall_at_k": 0.8165,
     "k": 10
   },
   {
     "method": "rotorvec iso4",
     "bits": 4,
-    "build_secs": 1.54728975,
-    "search_secs": 17.6191795,
+    "build_secs": 1.5622717499999998,
+    "search_secs": 0.12622875,
     "queries": 1000,
-    "qps": 56.7563319279425,
-    "recall_at_k": 0.8289,
+    "qps": 7922.1255062733335,
+    "recall_at_k": 0.8116,
     "k": 10
   }
 ]
