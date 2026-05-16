@@ -18,9 +18,7 @@ fn parse_rotation(s: &str) -> PyResult<Rotation> {
         "planar2" | "planar" | "givens" => Ok(Rotation::Planar2),
         "rotor3" | "rotor" | "clifford" => Ok(Rotation::Rotor3),
         "iso4" | "iso" | "quaternion" => Ok(Rotation::Iso4),
-        "walshrotor3" | "walsh" | "walsh-rotor3" | "rotor3+walsh" => {
-            Ok(Rotation::WalshRotor3)
-        }
+        "walshrotor3" | "walsh" | "walsh-rotor3" | "rotor3+walsh" => Ok(Rotation::WalshRotor3),
         other => Err(PyValueError::new_err(format!(
             "unknown rotation '{other}': expected 'planar2', 'rotor3', 'iso4', or 'walshrotor3'"
         ))),
