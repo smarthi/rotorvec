@@ -385,15 +385,6 @@ Three GitHub Actions workflows live in [`.github/workflows/`](.github/workflows)
 | [`release-pypi.yml`](.github/workflows/release-pypi.yml) | tag `py-vX.Y.Z` | Builds wheels for Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x64; builds sdist; publishes to PyPI via OIDC trusted publishing |
 | [`release-crates.yml`](.github/workflows/release-crates.yml) | tag `vX.Y.Z` | `cargo publish -p rotorvec` to crates.io via OIDC trusted publishing |
 
-Tagging convention:
-
-```bash
-# Rust crate release
-git tag v0.2.0 && git push origin v0.2.0
-
-# Python wheel release (independent versioning)
-git tag py-v0.2.0 && git push origin py-v0.2.0
-```
 
 **One-time PyPI / crates.io setup** (see each registry's docs for the
 exact UI):
@@ -426,9 +417,9 @@ and [PyPI](https://pypi.org/project/rotorvec/). 26 tests passing (16 unit +
 
 ### Roadmap (v0.2.4+)
 
-- **v0.2.4** — Generalized cross-block mixing for non-power-of-2 dim (covers 384, 768, 1536)
-- **v0.2.5** — x86 AVX2 / AVX-512 search kernels (cloud x86 coverage)
-- **v0.2.6** — NEON for 2-bit / 3-bit code widths
+- **v0.2.5** — Generalized cross-block mixing for non-power-of-2 dim (covers 384, 768, 1536)
+- **v0.2.6** — x86 AVX2 / AVX-512 search kernels (cloud x86 coverage)
+- **v0.2.7** — NEON for 2-bit / 3-bit code widths
 - **v0.3.0** — HNSW wrapper for production-scale corpora (>10M vectors)
 - LangChain / LlamaIndex / Haystack integrations once HNSW lands
 
