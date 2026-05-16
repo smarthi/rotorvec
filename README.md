@@ -410,19 +410,19 @@ Once configured, neither workflow needs API tokens stored as secrets.
 
 ## Status
 
-**v0.2.3 — current release.** Published on [crates.io](https://crates.io/crates/rotorvec)
+**v0.2.4 — current release.** Published on [crates.io](https://crates.io/crates/rotorvec)
 and [PyPI](https://pypi.org/project/rotorvec/). 26 tests passing (16 unit +
 9 integration + 1 doctest). CI green on Linux + macOS, Python 3.10/3.12/3.13.
 
 ### Release history
 
-| Version | Headline |
-|---|---|
-| **v0.2.3** | `WalshRotor3` variant — beats turbovec on SIFT-1M recall (0.496 vs 0.487) at 1.8× faster build |
-| v0.2.2 | Real-dataset benchmarks (GloVe-100, SIFT-1M) + FAISS baseline + apples-to-apples audit |
-| v0.2.1 | NEON 4-bit search kernel — 130× faster search on aarch64, 96% of turbovec QPS at d=128 |
-| v0.2.0 | Benchmark harness + Rotor3 trailing-padding fix (recall@10 at d=128: 0.78 → 0.83) |
-| v0.1.x | Initial release — three rotation variants, scalar search, file format, CI/CD |
+| Version    | Headline |
+|------------|---|
+| **v0.2.4** | `WalshRotor3` variant — beats turbovec on SIFT-1M recall (0.496 vs 0.487) at 1.8× faster build |
+| v0.2.2     | Real-dataset benchmarks (GloVe-100, SIFT-1M) + FAISS baseline + apples-to-apples audit |
+| v0.2.1     | NEON 4-bit search kernel — 130× faster search on aarch64, 96% of turbovec QPS at d=128 |
+| v0.2.0     | Benchmark harness + Rotor3 trailing-padding fix (recall@10 at d=128: 0.78 → 0.83) |
+| v0.1.x     | Initial release — three rotation variants, scalar search, file format, CI/CD |
 
 ### Roadmap (v0.2.4+)
 

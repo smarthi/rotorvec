@@ -1,4 +1,4 @@
-# v0.2.3 — Walsh-Hadamard cross-block mixing closes the SIFT recall gap
+# v0.2.4 — Walsh-Hadamard cross-block mixing closes the SIFT recall gap
 
 v0.2.2's real-dataset benchmarks surfaced a sharp finding: on data with strong cross-coordinate correlations (SIFT-1M image features), rotorvec's block-diagonal rotation lagged turbovec on recall by 10–15 percentage points. Block-only mixing wasn't enough.
 
@@ -27,17 +27,17 @@ WalshRotor3 beats turbovec on recall (+0.9pp) while keeping rotorvec's 1.8× bui
 
 **Synthetic Gaussian, d=128, n=50K, 4-bit, k=10:**
 
-| Method | Recall@10 | QPS |
-|---|---:|---:|
-| rotor3 (v0.2.2) | 0.818 | 77,577 |
-| walshrotor3 (v0.2.3) | 0.817 | 75,470 |
+| Method               | Recall@10 | QPS |
+|----------------------|---:|---:|
+| rotor3 (v0.2.2)      | 0.818 | 77,577 |
+| walshrotor3 (v0.2.4) | 0.817 | 75,470 |
 
 **Synthetic Gaussian, d=512, n=50K, 4-bit, k=10:**
 
-| Method | Recall@10 | QPS |
-|---|---:|---:|
-| rotor3 (v0.2.2) | 0.827 | 24,831 |
-| walshrotor3 (v0.2.3) | 0.825 | 23,729 |
+| Method               | Recall@10 | QPS |
+|----------------------|---:|---:|
+| rotor3 (v0.2.2)      | 0.827 | 24,831 |
+| walshrotor3 (v0.2.4) | 0.825 | 23,729 |
 
 Within noise. The WHT pass is invisible on data where it isn't needed.
 
@@ -113,7 +113,7 @@ Plus 5 unit tests in `wht::tests` covering FWHT involution, norm scaling, signed
 
 ## CI hardening
 
-Beyond v0.2.3 itself, this release also pins the CI Rust toolchain to `1.95.0` and adds an explicit `rustfmt.toml`. Stable rustfmt has been drifting between Rust releases (we hit two formatting-only CI failures in v0.2.0 → v0.2.3), and the pin makes `cargo fmt --check` reproducible across machines.
+Beyond v0.2.4 itself, this release also pins the CI Rust toolchain to `1.95.0` and adds an explicit `rustfmt.toml`. Stable rustfmt has been drifting between Rust releases (we hit two formatting-only CI failures in v0.2.0 → v0.2.3), and the pin makes `cargo fmt --check` reproducible across machines.
 
 ## Full changelog
 

@@ -1,16 +1,16 @@
 # Real-dataset benchmarks (v0.2.3)
 
-## tl;dr — v0.2.3 closes the SIFT recall gap
+## tl;dr — v0.2.4 closes the SIFT recall gap
 
-v0.2.3 adds **`Rotation::WalshRotor3`** — a signed Walsh-Hadamard cross-block
+v0.2.4 adds **`Rotation::WalshRotor3`** — a signed Walsh-Hadamard cross-block
 mixing pass before the Cl(3,0) block-diagonal rotation. The result on the
 benchmark that mattered most:
 
 | Method (SIFT-1M, n=1M, d=128, 4-bit, k=10) | Recall@10 | Build (s) | QPS |
-|---|---:|---:|---:|
-| turbovec | 0.487 | 5.45 | 4,652 |
-| rotorvec rotor3 (v0.2.2, block-only) | 0.383 | 2.52 | 3,258 |
-| **rotorvec walshrotor3 (v0.2.3, +WHT)** | **0.496** | **3.04** | 3,212 |
+|--------------------------------------------|---:|---:|---:|
+| turbovec                                   | 0.487 | 5.45 | 4,652 |
+| rotorvec rotor3 (v0.2.2, block-only)       | 0.383 | 2.52 | 3,258 |
+| **rotorvec walshrotor3 (v0.2.4, +WHT)**    | **0.496** | **3.04** | 3,212 |
 
 WHT pre-pass + block rotation **beats turbovec on recall** (0.496 vs 0.487)
 while keeping rotorvec's build-time advantage (3.04s vs 5.45s, 1.8× faster).
@@ -178,7 +178,7 @@ this is a real win that compounds across builds.
 
 rotorvec at ~70% of turbovec and ~55% of FAISS FastScan QPS. The remaining
 gap is inner-loop tuning (8-way unroll, prefetch hints — currently 4-way
-unrolled) and is a v0.2.3 target.
+unrolled) and is a v0.2.4 target.
 
 ## When to pick rotorvec, today
 
@@ -192,7 +192,7 @@ unrolled) and is a v0.2.3 target.
 **Use turbovec when:**
 - Same data-oblivious requirement as rotorvec, but recall matters more than
   build time, and your data may have stronger cross-coord correlations
-- You're on x86 — turbovec has AVX-512 kernels; rotorvec's x86 SIMD is v0.2.3
+- You're on x86 — turbovec has AVX-512 kernels; rotorvec's x86 SIMD is v0.2.4
 
 **Use FAISS PQ when:**
 - You can retrain centroids on your corpus and recall is paramount
@@ -214,7 +214,7 @@ unrolled) and is a v0.2.3 target.
   zero coords) to satisfy `dim % 8 == 0`. That's 16 extra bits per vector
   (~4%) above FAISS's d=100 representation. Negligible but worth noting.
 
-## What changes in v0.2.3+
+## What changes in v0.2.4+
 
 Two paths under consideration:
 
