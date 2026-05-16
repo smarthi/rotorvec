@@ -1,0 +1,14 @@
+# Stable-only rustfmt options. Anything more aggressive needs nightly
+# (most rustfmt knobs are unstable as of Rust 1.95), so we keep this
+# minimal and lean on the toolchain pin in CI to enforce consistency
+# across machines.
+#
+# To preview formatting changes locally:  cargo fmt --all -- --check
+# To apply them:                          cargo fmt --all
+
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Default"
