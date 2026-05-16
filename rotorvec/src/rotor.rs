@@ -26,6 +26,18 @@ pub enum Rotation {
     Rotor3,
     /// 4D quaternion left-iso rotation (IsoQuant). Block size 4, 4 params per group.
     Iso4,
+    /// **Walsh-Hadamard + Cl(3,0) rotor.** Applies `H · diag(s)` (signed
+    /// fast Walsh-Hadamard) as a cross-block mixing pass, then `Rotor3`
+    /// block-diagonal rotation. Cost is `O(d log d)` — between pure block-
+    /// diagonal `O(d)` and dense d×d `O(d²)`. Designed to close the recall
+    /// gap on data with strong cross-coordinate correlations (e.g. SIFT)
+    /// while still avoiding BLAS GEMM.
+    ///
+    /// **Constraint:** `dim` must be a power of two (the FWHT butterfly
+    /// network only handles power-of-two lengths). This rules out
+    /// `dim = 100, 384, 768, 1536`; covers `128, 256, 512, 1024, 2048,
+    /// 4096`. Use one of the other variants for non-power-of-two dims.
+    WalshRotor3,
 }
 
 impl Rotation {
@@ -34,7 +46,14 @@ impl Rotation {
             Rotation::Planar2 => 2,
             Rotation::Rotor3 => 3,
             Rotation::Iso4 => 4,
+            Rotation::WalshRotor3 => 3,
         }
+    }
+
+    /// True iff this rotation kind applies a signed Walsh-Hadamard pre-pass
+    /// (cross-block mixing) before the block-diagonal rotation.
+    pub const fn uses_walsh(self) -> bool {
+        matches!(self, Rotation::WalshRotor3)
     }
 
     /// Stable on-disk tag. Used by `io.rs`.
@@ -43,6 +62,7 @@ impl Rotation {
             Rotation::Planar2 => 2,
             Rotation::Rotor3 => 3,
             Rotation::Iso4 => 4,
+            Rotation::WalshRotor3 => 5,
         }
     }
 
@@ -51,6 +71,7 @@ impl Rotation {
             2 => Some(Rotation::Planar2),
             3 => Some(Rotation::Rotor3),
             4 => Some(Rotation::Iso4),
+            5 => Some(Rotation::WalshRotor3),
             _ => None,
         }
     }
@@ -179,7 +200,14 @@ pub fn precompute_block_matrices(
             continue;
         }
 
-        match kind {
+        // `WalshRotor3` reuses Rotor3's block-rotation generation; the WHT
+        // pre-pass is handled separately via `precompute_walsh_signs`.
+        let block_kind = match kind {
+            Rotation::WalshRotor3 => Rotation::Rotor3,
+            other => other,
+        };
+
+        match block_kind {
             Rotation::Planar2 => {
                 let theta = rng.gen::<f32>() * TAU;
                 m.copy_from_slice(&givens_to_so2(theta));
@@ -192,10 +220,31 @@ pub fn precompute_block_matrices(
                 let q = random_quaternion(&mut rng);
                 m.copy_from_slice(&quaternion_to_so4(&q));
             }
+            Rotation::WalshRotor3 => unreachable!("normalized to Rotor3 above"),
         }
     }
 
     (matrices, n_groups, padded_dim)
+}
+
+/// Generate the deterministic ±1 sign vector for rotation kinds that apply
+/// a signed Walsh-Hadamard pre-pass. Returns `None` for variants that don't
+/// use WHT. Uses a seed derived from `seed` (offset to avoid colliding with
+/// the block-rotation RNG stream and stay reproducible).
+pub fn precompute_walsh_signs(dim: usize, kind: Rotation, seed: u64) -> Option<Vec<f32>> {
+    if !kind.uses_walsh() {
+        return None;
+    }
+    debug_assert!(
+        crate::wht::is_pow2(dim),
+        "WalshRotor3 requires dim to be a power of 2"
+    );
+    // Wrapping-add offset puts the WHT sign RNG on its own stream so changes
+    // to one cache don't shift the other.
+    Some(crate::wht::make_sign_vector(
+        dim,
+        seed.wrapping_add(0x57_4854_u64),
+    ))
 }
 
 #[cfg(test)]

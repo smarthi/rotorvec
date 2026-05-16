@@ -105,8 +105,19 @@ fn main() -> Result<()> {
     )?;
 
     eprintln!("Running {} methods at {}-bit ...", methods.len(), cli.bits);
+    let dim_is_pow2 = loaded.dim > 0 && (loaded.dim & (loaded.dim - 1)) == 0;
     let mut results = Vec::new();
     for &m in &methods {
+        // WalshRotor3 requires power-of-two dim. Skip on incompatible dims
+        // (e.g. GloVe-100 padded to 104) rather than panicking.
+        if matches!(m, Method::RvWalshRotor3) && !dim_is_pow2 {
+            eprintln!(
+                "  ... {} — skipped (dim={} not a power of 2)",
+                m.label().trim(),
+                loaded.dim
+            );
+            continue;
+        }
         eprintln!("  ... {}", m.label().trim());
         let r = runner::run(
             m,
@@ -191,6 +202,7 @@ fn parse_methods(spec: &str) -> Result<Vec<Method>> {
             "planar" | "planar2" | "rv-planar" => Ok(Method::RvPlanar2),
             "rotor" | "rotor3" | "rv-rotor" => Ok(Method::RvRotor3),
             "iso" | "iso4" | "rv-iso" => Ok(Method::RvIso4),
+            "walsh" | "walshrotor3" | "rv-walsh" => Ok(Method::RvWalshRotor3),
             other => anyhow::bail!("unknown method: {other}"),
         })
         .collect()

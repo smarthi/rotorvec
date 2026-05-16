@@ -19,6 +19,74 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 
 const ALL_ROTATIONS: [Rotation; 3] = [Rotation::Planar2, Rotation::Rotor3, Rotation::Iso4];
 
+#[test]
+fn walsh_rotor3_roundtrip_pow2_dim() {
+    let dim = 128; // power of 2, satisfies WalshRotor3
+    let n = 200;
+    let bits = 4;
+    let vectors = random_vectors(n, dim, 17);
+    let queries = random_vectors(3, dim, 23);
+
+    let mut idx = RotorQuantIndex::with_rotation(dim, bits, Rotation::WalshRotor3);
+    idx.add(&vectors);
+    let before = idx.search(&queries, 5);
+
+    let tmp = std::env::temp_dir().join("rotorvec_walsh_test.rv");
+    idx.write(&tmp).unwrap();
+    let loaded = RotorQuantIndex::load(&tmp).unwrap();
+    assert_eq!(loaded.rotation(), Rotation::WalshRotor3);
+    let after = loaded.search(&queries, 5);
+
+    assert_eq!(before.scores, after.scores);
+    assert_eq!(before.indices, after.indices);
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+#[should_panic(expected = "dim to be a power of 2")]
+fn walsh_rotor3_rejects_non_pow2_dim() {
+    // dim=192 is a multiple of 8 (so the base assert passes) but not a
+    // power of 2 (so WalshRotor3's FWHT requirement fails).
+    let _ = RotorQuantIndex::with_rotation(192, 4, Rotation::WalshRotor3);
+}
+
+#[test]
+fn walsh_rotor3_top1_recall_beats_random() {
+    // Same shape as recall_top1_beats_random_all_variants but for the WHT
+    // variant. d must be pow2; pick 256 to get a decent recall floor.
+    let dim = 256;
+    let n = 500;
+    let bits = 4;
+    let vectors = random_vectors(n, dim, 71);
+    let queries = random_vectors(50, dim, 73);
+
+    let mut idx = RotorQuantIndex::with_rotation(dim, bits, Rotation::WalshRotor3);
+    idx.add(&vectors);
+    let res = idx.search(&queries, 1);
+
+    let mut hits = 0;
+    for qi in 0..50 {
+        let q = &queries[qi * dim..(qi + 1) * dim];
+        let mut best_true = 0usize;
+        let mut best_score = f32::NEG_INFINITY;
+        for vi in 0..n {
+            let v = &vectors[vi * dim..(vi + 1) * dim];
+            let s = dot(q, v);
+            if s > best_score {
+                best_score = s;
+                best_true = vi;
+            }
+        }
+        if res.indices_for_query(qi)[0] as usize == best_true {
+            hits += 1;
+        }
+    }
+    assert!(
+        hits >= 25,
+        "WalshRotor3 recall@1 = {hits}/50, expected >= 25"
+    );
+}
+
 /// On aarch64 the default search path is NEON for 4-bit. This test compares
 /// it against the public scalar search entry point to make sure the NEON
 /// quantized-LUT approximation lands on the same top-k that scalar would.

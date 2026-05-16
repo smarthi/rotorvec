@@ -24,6 +24,7 @@
 #![cfg(target_arch = "aarch64")]
 
 use crate::rotation::rotate_batch;
+use crate::wht::apply_signed_wht;
 use crate::{BLOCK, FLUSH_EVERY};
 use rayon::prelude::*;
 use std::cmp::Ordering;
@@ -282,6 +283,7 @@ pub fn search_4bit_neon(
     queries: &[f32],
     nq: usize,
     dim: usize,
+    walsh_signs: Option<&[f32]>,
     matrices: &[f32],
     block_size: usize,
     padded_dim: usize,
@@ -296,12 +298,22 @@ pub fn search_4bit_neon(
     debug_assert_eq!(dim % 2, 0);
     let n_byte_groups = dim / 2;
 
-    // Rotate queries (same block-diag rotation as the scalar path).
+    // Mirror the encode pipeline: optional signed WHT, then block-rotate.
     let mut q_padded = vec![0.0f32; nq * padded_dim];
     for i in 0..nq {
         let src = &queries[i * dim..(i + 1) * dim];
         let dst = &mut q_padded[i * padded_dim..i * padded_dim + dim];
         dst.copy_from_slice(src);
+    }
+    if let Some(signs) = walsh_signs {
+        let inv_sqrt_dim = 1.0 / (dim as f32).sqrt();
+        for i in 0..nq {
+            let dst = &mut q_padded[i * padded_dim..i * padded_dim + dim];
+            apply_signed_wht(dst, signs);
+            for x in dst.iter_mut() {
+                *x *= inv_sqrt_dim;
+            }
+        }
     }
     let q_rot = rotate_batch(matrices, &q_padded, nq, padded_dim, block_size);
 

@@ -2,6 +2,7 @@
 
 use crate::pack::unpack_vector;
 use crate::rotation::rotate_batch;
+use crate::wht::apply_signed_wht;
 use rayon::prelude::*;
 use std::cmp::Ordering;
 
@@ -10,6 +11,7 @@ pub fn search(
     queries: &[f32],
     nq: usize,
     dim: usize,
+    walsh_signs: Option<&[f32]>,
     block_matrices: &[f32],
     block_size: usize,
     padded_dim: usize,
@@ -25,6 +27,19 @@ pub fn search(
         let src = &queries[i * dim..(i + 1) * dim];
         let dst = &mut q_padded[i * padded_dim..i * padded_dim + dim];
         dst.copy_from_slice(src);
+    }
+    // Mirror encode's pre-pass exactly: signed WHT, then rescale by 1/√dim,
+    // then block-rotate. Database vectors went through the same pipeline so
+    // inner products are computed in the same transformed space.
+    if let Some(signs) = walsh_signs {
+        let inv_sqrt_dim = 1.0 / (dim as f32).sqrt();
+        for i in 0..nq {
+            let dst = &mut q_padded[i * padded_dim..i * padded_dim + dim];
+            apply_signed_wht(dst, signs);
+            for x in dst.iter_mut() {
+                *x *= inv_sqrt_dim;
+            }
+        }
     }
     let q_rot = rotate_batch(block_matrices, &q_padded, nq, padded_dim, block_size);
 

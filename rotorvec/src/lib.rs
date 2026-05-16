@@ -34,6 +34,7 @@ pub mod pack;
 pub mod rotation;
 pub mod rotor;
 pub mod search;
+pub mod wht;
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod search_neon;
@@ -101,6 +102,9 @@ pub struct RotorQuantIndex {
 
     block_matrices: OnceLock<(Vec<f32>, usize)>, // (matrices, padded_dim)
     centroids: OnceLock<Vec<f32>>,
+    /// Walsh-Hadamard sign vector, present only for variants that apply
+    /// a signed WHT pre-pass (currently `Rotation::WalshRotor3`).
+    walsh_signs: OnceLock<Option<Vec<f32>>>,
     /// SIMD-blocked codes, materialized lazily by `search()`. Invalidated
     /// on `add()` / `swap_remove()` by replacing the `OnceLock`.
     blocked: OnceLock<BlockedCache>,
@@ -121,6 +125,12 @@ impl RotorQuantIndex {
     pub fn with_options(dim: usize, bits: usize, rotation: Rotation, seed: u64) -> Self {
         assert!((2..=4).contains(&bits), "bits must be 2, 3, or 4");
         assert!(dim % 8 == 0, "dim must be a multiple of 8");
+        if rotation.uses_walsh() {
+            assert!(
+                wht::is_pow2(dim),
+                "Rotation::WalshRotor3 requires dim to be a power of 2 (got {dim})"
+            );
+        }
         Self {
             dim,
             bits,
@@ -131,6 +141,7 @@ impl RotorQuantIndex {
             norms: Vec::new(),
             block_matrices: OnceLock::new(),
             centroids: OnceLock::new(),
+            walsh_signs: OnceLock::new(),
             blocked: OnceLock::new(),
         }
     }
@@ -147,11 +158,13 @@ impl RotorQuantIndex {
         }
 
         let (matrices, padded_dim) = self.ensure_block_matrices().clone();
+        let walsh_signs = self.ensure_walsh_signs().map(<[f32]>::to_vec);
         let (boundaries, _) = codebook::codebook(self.bits, self.dim);
         let (packed, norms) = encode::encode(
             vectors,
             n,
             self.dim,
+            walsh_signs.as_deref(),
             &matrices,
             self.rotation.block_size(),
             padded_dim,
@@ -174,6 +187,7 @@ impl RotorQuantIndex {
 
         let (matrices, padded_dim) = self.ensure_block_matrices();
         let centroids = self.ensure_centroids();
+        let walsh_signs = self.ensure_walsh_signs();
         let k = k.min(self.n_vectors).max(1);
 
         let (scores, indices) = if self.n_vectors == 0 {
@@ -187,6 +201,7 @@ impl RotorQuantIndex {
                     queries,
                     nq,
                     self.dim,
+                    walsh_signs,
                     matrices,
                     self.rotation.block_size(),
                     *padded_dim,
@@ -209,6 +224,7 @@ impl RotorQuantIndex {
                 queries,
                 nq,
                 self.dim,
+                walsh_signs,
                 matrices,
                 self.rotation.block_size(),
                 *padded_dim,
@@ -286,6 +302,7 @@ impl RotorQuantIndex {
             norms,
             block_matrices: OnceLock::new(),
             centroids: OnceLock::new(),
+            walsh_signs: OnceLock::new(),
             blocked: OnceLock::new(),
         }
     }
@@ -316,6 +333,13 @@ impl RotorQuantIndex {
             let (_, c) = codebook::codebook(self.bits, self.dim);
             c
         })
+    }
+
+    /// Walsh-Hadamard sign vector (or `None` for non-WHT rotations).
+    fn ensure_walsh_signs(&self) -> Option<&[f32]> {
+        self.walsh_signs
+            .get_or_init(|| rotor::precompute_walsh_signs(self.dim, self.rotation, self.seed))
+            .as_deref()
     }
 
     /// Lazily materialize the SIMD-blocked code layout (4-bit, BLOCK=32).

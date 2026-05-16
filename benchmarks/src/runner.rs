@@ -13,6 +13,7 @@ pub enum Method {
     RvPlanar2,
     RvRotor3,
     RvIso4,
+    RvWalshRotor3,
 }
 
 impl Method {
@@ -22,6 +23,7 @@ impl Method {
             Method::RvPlanar2 => "rotorvec planar2",
             Method::RvRotor3 => "rotorvec rotor3 ",
             Method::RvIso4 => "rotorvec iso4   ",
+            Method::RvWalshRotor3 => "rotorvec walshrotor3",
         }
     }
     pub fn all() -> &'static [Method] {
@@ -30,6 +32,7 @@ impl Method {
             Method::RvPlanar2,
             Method::RvRotor3,
             Method::RvIso4,
+            Method::RvWalshRotor3,
         ]
     }
 }
@@ -83,6 +86,7 @@ pub fn run(
         Method::RvPlanar2 => build_rv(Rotation::Planar2, train, dim, bits),
         Method::RvRotor3 => build_rv(Rotation::Rotor3, train, dim, bits),
         Method::RvIso4 => build_rv(Rotation::Iso4, train, dim, bits),
+        Method::RvWalshRotor3 => build_rv(Rotation::WalshRotor3, train, dim, bits),
     };
 
     let (idx, build) = approx;
