@@ -11,6 +11,50 @@ recomputed on unit-normalized vectors so all methods are scored against the
 same inner-product target. Hardware: M-series Apple Silicon, single-machine
 single-process, rayon-parallel where applicable.
 
+## Apples-to-apples audit (rotorvec vs turbovec)
+
+Every dimension where the comparison could be skewed, walked through
+explicitly so a skeptical reader can verify nothing favors either side:
+
+| Axis | rotorvec | turbovec | Aligned? |
+|---|---|---|---|
+| Input data | same `&[f32]` from the prepped `.fvecs` file, normalized in-place by `datasets::normalize_inplace` before any encoding | same | ✅ identical bytes |
+| Ground truth | brute-force top-k inner product on the normalized vectors, k=10 | same — single GT array shared by both methods in `runner.rs::run` | ✅ same target |
+| Quantization scheme | per-coord Lloyd-Max with `2^bits` centroids drawn from Beta((d-1)/2, (d-1)/2) on [-1, 1] | same — turbovec's `codebook::codebook(bits, dim)` is the source rotorvec ported | ✅ same boundaries, same centroids |
+| Code mapping | `code = sum_b (rotated_coord > boundary_b)` | same | ✅ identical |
+| Bit packing | bit-plane format, `bits` planes × `dim/8` bytes per vector | same | ✅ identical |
+| Compression | 4 bits/coord → `dim*4` bits/vector | same | ✅ identical |
+| Search kernel (aarch64, 4-bit) | NEON with `vqtbl1q_u8` × 16-way lookup, u8 quantized LUTs, u16 accumulators, flush to f32 every 256 byte-groups | NEON with same exact design — rotorvec's `search_neon` was ported directly from turbovec's `score_4bit_block_neon` | ✅ same kernel design, same FLUSH_EVERY=256, same BLOCK=32 |
+| Query rotation | block-diagonal `n_groups` × 3×3 matmuls per query, in `rotation::rotate_batch` (rayon-parallel) | dense d×d GEMM via faer's BLAS, batched across all queries | ⚠️ different algorithms — but this **is** the comparison. Block-diag is intrinsically cheaper but decorrelates less. |
+| Blocked code layout | sequential 32-vector blocks, byte-packed nibble pairs — `pack::repack_4bit` matches turbovec's NEON layout byte-for-byte | original layout | ✅ identical |
+| Build-time scope | `new` + `add` + `prepare` (which materializes rotation, centroids, blocked codes) | same — `runner.rs` calls all three for both | ✅ same operations timed |
+| Search-time scope | LUT build + per-block scoring + top-k heap insertion | same | ✅ same operations timed |
+| Top-k heap | sorted ascending buffer of length k (cheap for small k) in `search_neon::search_4bit_neon` | same shape | ✅ same |
+| Parallelism | rayon: per-query parallel, default thread count = num CPUs | same: rayon, per-query parallel | ✅ same |
+| Norm multiplication | applied per vector via NEON FMA after the u16→f32 flush | same | ✅ same |
+| Random seed | rotorvec rotation seed = `0x0707_04EC`; turbovec rotation seed = `42`; **both deterministic** | different constants, both deterministic | ⚠️ different RNGs, but consequence is just "different rotation matrices" — orthogonal Haar-distributed in both cases |
+
+### Things that legitimately differ (by design)
+
+1. **The rotation itself.** Block-diagonal SO(2/3/4) per group vs dense d×d random orthogonal. This is *the* point of the experiment.
+2. **Number of rotation parameters.** rotorvec: ~d floats. turbovec: d² floats. ~150× ratio at d=128, ~600× at d=768.
+3. **Build cost asymptotics.** rotorvec: O(d) per vector. turbovec: O(d²) per vector via BLAS GEMM. This is why rotorvec build is 2× faster.
+
+### Things that do NOT differ (would have been bugs if they did)
+
+- Lloyd-Max boundaries are bit-identical between the two crates for the same `(bits, dim)` — both call into ported-and-shared code from `codebook.rs`.
+- The query LUT quantization scheme (u8, scale, bias) was lifted verbatim from `turbovec/src/search.rs::build_query_neon_lut_from_slice`.
+- The scoring inner loop matches turbovec's `score_4bit_block_neon` instruction-for-instruction: same `vqtbl1q_u8` lookups, same `vaddw_u8` widening, same FLUSH_EVERY cadence, same `vfmaq_f32` for the float reduction.
+
+Sources for verification:
+
+- rotorvec quantized LUT builder: [`rotorvec/src/search_neon.rs::build_query_lut_4bit`](../rotorvec/src/search_neon.rs)
+- turbovec quantized LUT builder: [`turbovec/src/search.rs::build_query_neon_lut_from_slice`](https://github.com/RyanCodrai/turbovec/blob/main/turbovec/src/search.rs)
+- rotorvec NEON kernel: [`rotorvec/src/search_neon.rs::score_4bit_block_neon`](../rotorvec/src/search_neon.rs)
+- turbovec NEON kernel: [`turbovec/src/search.rs::score_4bit_block_neon`](https://github.com/RyanCodrai/turbovec/blob/main/turbovec/src/search.rs)
+
+If you find an axis I missed, please open an issue — the whole point of v0.2.2 is that the comparison is defensible.
+
 ## Reproduce
 
 ```bash
