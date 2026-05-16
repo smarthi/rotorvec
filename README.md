@@ -120,6 +120,205 @@ let (scores, ids) = index.search(&queries, 10);
 index.remove(1002);
 ```
 
+## Python usage guide
+
+A walkthrough covering the common patterns: building an index from
+embeddings, picking the right variant for your data, searching with
+stable IDs, persisting to disk, and the gotchas worth knowing.
+
+### Install
+
+```bash
+pip install rotorvec
+```
+
+Wheels are abi3-py310 — one binary per platform covers Python 3.10
+through 3.13. Linux x86_64/aarch64, macOS aarch64, Windows x64 wheels
+are on PyPI; other platforms build from sdist.
+
+### Choosing dim, bits, and rotation
+
+Three knobs determine compression rate and recall:
+
+| Knob | What it controls | Constraint | Practical advice |
+|---|---|---|---|
+| `dim` | embedding dimension | `dim % 8 == 0` (always); power of 2 if you want `walshrotor3` | match your embedding model — 384 / 768 / 1024 / 1536 are typical |
+| `bits` | bits per coordinate | `2`, `3`, or `4` | start at `4` (best recall); drop to `2-3` only if memory is tight |
+| `rotation` | decorrelation scheme | see [the variant table](#four-rotation-variants) | start at `"rotor3"` unless your `dim` is a power of 2 — then use `"walshrotor3"` |
+
+A rough sizing formula: each vector takes `dim * bits / 8` bytes + 4
+bytes for the norm. At `dim=1536, bits=4`: 772 bytes/vector → 100K
+vectors fit in ~75 MB, 1M vectors in ~750 MB.
+
+### Build an index from sentence-transformer embeddings
+
+End-to-end with `sentence-transformers` (the most common RAG / semantic
+search starting point):
+
+```python
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from rotorvec import RotorQuantIndex
+
+model = SentenceTransformer("all-MiniLM-L6-v2")   # dim=384
+corpus = ["The capital of France is Paris.",
+          "Mount Everest is the tallest peak.",
+          "rotorvec compresses vectors via Clifford rotors.",
+          # ... your documents
+         ]
+
+embeddings = model.encode(corpus, convert_to_numpy=True).astype(np.float32)
+# Shape: (n_docs, 384). dtype must be float32.
+
+# dim=384 is not a power of 2, so use rotor3 (or planar2 / iso4).
+index = RotorQuantIndex(dim=384, bits=4, rotation="rotor3")
+index.add(embeddings)
+
+# Search
+query_text = "Where is the Eiffel Tower?"
+q = model.encode([query_text], convert_to_numpy=True).astype(np.float32)
+scores, indices = index.search(q, k=5)
+
+for rank, (i, s) in enumerate(zip(indices[0], scores[0])):
+    print(f"{rank+1}. score={s:.3f}  {corpus[i]}")
+```
+
+For OpenAI embeddings (`text-embedding-3-small`, dim=1536) the only
+change is `RotorQuantIndex(dim=1536, ...)`.
+
+For CLIP image embeddings (ViT-B/32, dim=512) you can use the stronger
+`walshrotor3` because 512 is a power of 2:
+
+```python
+index = RotorQuantIndex(dim=512, bits=4, rotation="walshrotor3")
+```
+
+### Stable external IDs (RAG, deletes, multi-tenant)
+
+The default `RotorQuantIndex` returns positional indices (`0..n`). If
+your documents have stable IDs (database PKs, hashes, etc.), use
+`IdMapIndex` — it survives deletes:
+
+```python
+import numpy as np
+from rotorvec import IdMapIndex
+
+doc_ids = np.array([1001, 1002, 1003, 1004], dtype=np.uint64)
+embeddings = np.random.randn(4, 384).astype(np.float32)
+
+idx = IdMapIndex(dim=384, bits=4, rotation="rotor3")
+idx.add_with_ids(embeddings, doc_ids)
+
+# Search returns your ids, not positional indices
+scores, ids = idx.search(query, k=3)
+# ids dtype is uint64 — your original document IDs
+
+# Deletes are O(1)
+idx.remove(1002)
+assert idx.contains(1002) is False
+assert len(idx) == 3
+```
+
+When the queue of documents grows past a million, this is the layer
+you almost certainly want — the positional index forces you to track
+"which row was which document" externally, which gets painful fast.
+
+### Save and load
+
+`.rv` for the positional index, `.rvim` for the ID-mapped index.
+Format includes the rotation variant byte so loading picks the right
+block size automatically:
+
+```python
+# Save
+index.write("corpus_v1.rv")
+
+# Load (works across machines, same dim/bits/rotation comes back)
+from rotorvec import RotorQuantIndex
+loaded = RotorQuantIndex.load("corpus_v1.rv")
+assert loaded.dim == 384
+assert loaded.bits == 4
+assert loaded.rotation == "rotor3"
+
+# IdMapIndex round-trips the id table too
+idx.write("corpus_v1.rvim")
+loaded_id = IdMapIndex.load("corpus_v1.rvim")
+```
+
+The on-disk format is stable across patch releases. Major-version
+bumps (e.g. v0.2.x → v0.3.0) may break compat — release notes call
+that out when it happens.
+
+### Incremental adds
+
+`add()` is incremental — you can call it repeatedly without rebuilding:
+
+```python
+index = RotorQuantIndex(dim=1536, bits=4)
+
+for batch in stream_embeddings(batch_size=10_000):  # any iterable
+    index.add(batch)
+    print(f"index size: {len(index)}")
+```
+
+Internally, the first `search()` after any `add()` rebuilds the SIMD
+block cache lazily. If you have an interactive workload mixing
+add/search, you can warm the cache deterministically:
+
+```python
+index.prepare()   # pay the rebuild cost now, not on the next search
+```
+
+### Searching multiple queries at once
+
+`search()` is batch-shaped — pass a 2D array of queries, get back 2D
+scores + indices. This is meaningfully faster per query than looping
+because the rotation matrix and centroid LUTs build once:
+
+```python
+# 1 query at a time — repeated rebuild overhead
+for q in queries:
+    scores, indices = index.search(q.reshape(1, -1), k=10)
+
+# All queries at once — single rebuild, parallelized across queries
+scores, indices = index.search(queries, k=10)
+```
+
+### Common errors and fixes
+
+| Error | Cause | Fix |
+|---|---|---|
+| `dim must be a multiple of 8` | dim is 100, 200, etc. | use 104, 200, 384, 768, 1536 (already-supported), or zero-pad your vectors to the next multiple of 8 |
+| `Rotation::WalshRotor3 requires dim to be a power of 2` | tried walshrotor3 with dim=384 | use `rotation="rotor3"` instead |
+| `vectors length not a multiple of dim` | numpy shape mismatch | check `vectors.shape == (n, dim)`; reshape if needed |
+| `vectors` arg is rejected | wrong dtype | ensure `vectors.astype(np.float32)` — `float64` is not accepted |
+
+### Performance tips
+
+- **Pin `bits=4`** unless RAM is critical. The recall delta between
+  4-bit and 3-bit is meaningful (5–10pp on real data); 4-bit and 2-bit
+  is severe (15–25pp).
+- **Use `walshrotor3` when you can.** If your `dim` is a power of 2,
+  there's no reason to use the block-only variants — `walshrotor3` is
+  same-or-better recall with negligible search overhead.
+- **Batch queries.** The per-query LUT build is amortized across the
+  batch; 100 queries at once is ~5–10× faster than 100 separate
+  `search` calls.
+- **Call `prepare()` before timing.** First `search()` after `add()`
+  builds the SIMD cache lazily — that cost shouldn't show up in your
+  latency measurements.
+
+### Integration with existing tooling
+
+- **LangChain / LlamaIndex / Haystack** — wrappers are on the
+  [v0.2.4+ roadmap](#roadmap-v024). For now, use rotorvec directly via
+  the API above; the integrations are thin shims.
+- **FAISS users:** the API mirrors FAISS conventions where possible
+  (`add` / `search`, k-as-positional, `(scores, indices)` return). The
+  main difference: rotorvec is data-oblivious (no `train()` step), so
+  there's no equivalent to FAISS's `IndexPQ.train(xb)`. Just `add()`
+  and you're done.
+
 ## How it works
 
 The pipeline per vector:
