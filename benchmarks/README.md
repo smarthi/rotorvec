@@ -1,6 +1,9 @@
 # rotorvec-bench
 
-Recall + throughput benchmarks for rotorvec and turbovec.
+Recall + throughput benchmarks for rotorvec, turbovec, and FAISS.
+
+**📊 New in v0.2.2:** real-dataset numbers vs FAISS on GloVe-100 and
+SIFT-1M — see [`REAL_DATASETS.md`](REAL_DATASETS.md).
 
 ## Quick start
 
@@ -14,8 +17,13 @@ cargo build -p rotorvec-bench --release
 # Larger / sentence-transformer dim
 ./target/release/rotorvec-bench --dataset random:100000:768 --bits 4 --k 10
 
-# SIFT-1M (downloads ~160 MB on first run, may need a working mirror)
-./target/release/rotorvec-bench --dataset sift-1m --bits 4 --k 10
+# Real datasets: prep once via Python, then run
+uv run python benchmarks/scripts/prep_datasets.py sift-128 glove-100
+./target/release/rotorvec-bench --dataset sift-1m   --bits 4 --k 10
+./target/release/rotorvec-bench --dataset glove-100 --bits 4 --k 10
+
+# FAISS baseline on the same prepped data
+uv run python benchmarks/scripts/bench_faiss.py glove-100 sift-128 --k 10
 ```
 
 Results land in `benchmarks/results/` as both `.md` (human-readable) and
@@ -25,7 +33,7 @@ Results land in `benchmarks/results/` as both `.md` (human-readable) and
 
 | Flag | Default | Description |
 |---|---|---|
-| `--dataset` | `sift-1m` | `random[:N[:D]]` or `sift-1m` |
+| `--dataset` | `sift-1m` | `random[:N[:D]]`, `sift-1m`, or `glove-100` |
 | `--bits` | `4` | quantization bits per coordinate (2/3/4) |
 | `--k` | `10` | top-k |
 | `--methods` | `all` | comma-separated: `turbovec,planar2,rotor3,iso4` |
@@ -38,11 +46,15 @@ Results land in `benchmarks/results/` as both `.md` (human-readable) and
 | Name | Source | Size | Distance | Notes |
 |---|---|---|---|---|
 | `random:N:D` | synthetic Gaussian | configurable | inner product | seeded, reproducible. Each coord ~ N(0,1), then unit-normalized |
-| `sift-1m` | INRIA TexMex | 1M × 128 | L2 → IP after normalize | ~160 MB download. INRIA's HTTP mirror is intermittently unavailable |
+| `sift-1m` | ann-benchmarks (originally INRIA TexMex) | 1M × 128 | L2 → IP after normalize | ~500 MB HDF5 download via `prep_datasets.py sift-128`. Ships precomputed GT |
+| `glove-100` | ann-benchmarks | 1.18M × 100 → padded to 104 | cosine/angular | ~470 MB HDF5 download via `prep_datasets.py glove-100`. Padding is zero-fill to satisfy rotorvec's `dim % 8 == 0` |
 
-Cached under `~/Library/Caches/rotorvec/` (macOS) or `~/.cache/rotorvec/`
-(Linux). Ground truth is recomputed per `(dataset, n_train, n_queries)`
-and disk-cached separately (see `ground_truth.rs`).
+Cached under `~/Library/Caches/rotorvec/datasets/` (macOS) or
+`~/.cache/rotorvec/datasets/` (Linux). Ground truth is recomputed per
+`(dataset, n_train, n_queries)` and disk-cached separately (see
+`ground_truth.rs`). Real datasets ship their own precomputed GT under
+`groundtruth.ivecs` but rotorvec-bench recomputes on normalized vectors
+to stay consistent with the inner-product target across all methods.
 
 ## v0.2.1 findings — NEON search kernel landed
 

@@ -1,0 +1,32 @@
+{
+  "variants": [
+    {
+      "method": "faiss_indexpq",
+      "variant": "IndexPQ",
+      "config": "m=100,nbits=4",
+      "build_secs": 2.665,
+      "search_secs": 75.3157,
+      "queries": 10000,
+      "qps": 132.8,
+      "recall_at_k": 0.80967,
+      "k": 10,
+      "dataset": "glove-100",
+      "dim": 100,
+      "n_train": 1183514
+    },
+    {
+      "method": "faiss_indexpqfastscan",
+      "variant": "IndexPQFastScan",
+      "config": "m=100,nbits=4",
+      "build_secs": 2.939,
+      "search_secs": 1.6834,
+      "queries": 10000,
+      "qps": 5940.5,
+      "recall_at_k": 0.806,
+      "k": 10,
+      "dataset": "glove-100",
+      "dim": 100,
+      "n_train": 1183514
+    }
+  ]
+}

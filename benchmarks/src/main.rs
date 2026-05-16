@@ -158,7 +158,8 @@ fn main() -> Result<()> {
 
 fn parse_dataset(spec: &str) -> Result<Dataset> {
     match spec {
-        "sift-1m" | "sift" => Ok(Dataset::Sift1M),
+        "sift-1m" | "sift" | "sift-128" => Ok(Dataset::Sift1M),
+        "glove-100" | "glove" => Ok(Dataset::GloVe100),
         other if other.starts_with("random") => {
             // Forms accepted:
             //   random          → n=100_000, dim=128

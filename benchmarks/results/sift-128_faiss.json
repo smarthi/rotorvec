@@ -1,0 +1,32 @@
+{
+  "variants": [
+    {
+      "method": "faiss_indexpq",
+      "variant": "IndexPQ",
+      "config": "m=128,nbits=4",
+      "build_secs": 2.8115,
+      "search_secs": 75.6246,
+      "queries": 10000,
+      "qps": 132.2,
+      "recall_at_k": 0.81971,
+      "k": 10,
+      "dataset": "sift-128",
+      "dim": 128,
+      "n_train": 1000000
+    },
+    {
+      "method": "faiss_indexpqfastscan",
+      "variant": "IndexPQFastScan",
+      "config": "m=128,nbits=4",
+      "build_secs": 2.8565,
+      "search_secs": 1.6551,
+      "queries": 10000,
+      "qps": 6041.8,
+      "recall_at_k": 0.81819,
+      "k": 10,
+      "dataset": "sift-128",
+      "dim": 128,
+      "n_train": 1000000
+    }
+  ]
+}

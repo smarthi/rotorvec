@@ -1,40 +1,44 @@
 //! Dataset loaders for ANN benchmarks.
 //!
-//! v0.2.0 ships SIFT-1M from INRIA's TexMex collection. The raw archive is
-//! ~160 MB compressed, ~520 MB extracted. Cached under `dirs::cache_dir()`
-//! (typically `~/Library/Caches/rotorvec` on macOS, `~/.cache/rotorvec` on
-//! Linux).
+//! v0.2.2 ships **SIFT-1M** and **GloVe-100** from ann-benchmarks.com,
+//! prepped via `benchmarks/scripts/prep_datasets.py`. Run that script
+//! once to download the HDF5 source and convert it to the .fvecs/.ivecs
+//! binary format this loader reads. Cached under `dirs::cache_dir()`
+//! (typically `~/Library/Caches/rotorvec/datasets/` on macOS,
+//! `~/.cache/rotorvec/datasets/` on Linux).
 //!
 //! File format: `.fvecs` for float vectors, `.ivecs` for int vectors.
-//! Each record = `[i32 dim, T dim ... T dim]` little-endian. We trust `dim`
-//! from the first record and skip the per-record dim header on subsequent
-//! reads.
+//! Each record = `[i32 dim, T dim ... T dim]` little-endian. We trust
+//! `dim` from the first record and skip the per-record dim header on
+//! subsequent reads.
 
 use anyhow::{anyhow, Context, Result};
-use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read};
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-
-const SIFT_URL: &str = "ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz";
-const SIFT_URL_HTTP: &str = "http://corpus-texmex.irisa.fr/sift.tar.gz";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dataset {
+    /// SIFT-1M from INRIA's TexMex. 1M × 128 vectors, L2 distance natively;
+    /// we normalize and recompute ground truth for inner-product search.
+    /// Requires `prep_datasets.py sift-128` to have been run first.
     Sift1M,
+    /// GloVe word vectors trained on 6B-token corpus. 1.18M × 100 vectors,
+    /// cosine/angular distance. dim=100 is padded with zeros to dim=104
+    /// internally to satisfy rotorvec's `dim % 8 == 0` constraint. Requires
+    /// `prep_datasets.py glove-100` to have been run first.
+    GloVe100,
     /// Synthetic standard-Gaussian unit vectors. Useful for rapid
     /// iteration and for isolating algorithm behavior from
     /// dataset-specific quirks (clusters, hubness, low-rank manifolds).
-    Random {
-        n: usize,
-        dim: usize,
-    },
+    Random { n: usize, dim: usize },
 }
 
 impl Dataset {
     pub fn name(&self) -> String {
         match self {
             Dataset::Sift1M => "sift-1m".to_string(),
+            Dataset::GloVe100 => "glove-100".to_string(),
             Dataset::Random { n, dim } => format!("random-n{n}-d{dim}"),
         }
     }
@@ -42,6 +46,7 @@ impl Dataset {
     pub fn dim(&self) -> usize {
         match self {
             Dataset::Sift1M => 128,
+            Dataset::GloVe100 => 104, // padded
             Dataset::Random { dim, .. } => *dim,
         }
     }
@@ -69,9 +74,63 @@ pub fn cache_dir() -> Result<PathBuf> {
 
 pub fn load(dataset: Dataset) -> Result<Loaded> {
     match dataset {
-        Dataset::Sift1M => load_sift_1m(),
+        Dataset::Sift1M => load_prepped("sift-128", 128, None),
+        Dataset::GloVe100 => load_prepped("glove-100", 100, Some(104)),
         Dataset::Random { n, dim } => Ok(load_random(n, dim, 1000)),
     }
+}
+
+/// Load a dataset prepped by `benchmarks/scripts/prep_datasets.py`.
+///
+/// Expects three files under `<cache>/datasets/<name>/`:
+/// * `base.fvecs` — `n_train × native_dim` train vectors
+/// * `query.fvecs` — `n_queries × native_dim` query vectors
+/// * `groundtruth.ivecs` — `n_queries × gt_k` precomputed nearest neighbor indices
+///
+/// If `pad_to_dim` is provided and larger than `native_dim`, each vector is
+/// zero-padded to that width. This is how we satisfy rotorvec's
+/// `dim % 8 == 0` constraint on datasets like GloVe-100 (native dim=100,
+/// padded to dim=104). The padding zeros don't affect inner-product search
+/// because zero × anything = zero on both sides.
+fn load_prepped(name: &str, native_dim: usize, pad_to_dim: Option<usize>) -> Result<Loaded> {
+    let dir = cache_dir()?.parent().unwrap().join("datasets").join(name);
+    if !dir.exists() {
+        anyhow::bail!(
+            "Dataset '{name}' not prepped. Run:\n\
+             \n\
+             \x20    uv run python benchmarks/scripts/prep_datasets.py {name}\n",
+        );
+    }
+    let base = read_fvecs(&dir.join("base.fvecs"))?;
+    let queries = read_fvecs(&dir.join("query.fvecs"))?;
+    let (gt_data, gt_k) = read_ivecs(&dir.join("groundtruth.ivecs"))?;
+    let dim = native_dim;
+    let n_train = base.len() / dim;
+    let n_queries = queries.len() / dim;
+
+    let (train_out, queries_out, dim_out) = match pad_to_dim {
+        Some(target) if target > dim => {
+            let mut t = vec![0.0f32; n_train * target];
+            for i in 0..n_train {
+                t[i * target..i * target + dim].copy_from_slice(&base[i * dim..(i + 1) * dim]);
+            }
+            let mut q = vec![0.0f32; n_queries * target];
+            for i in 0..n_queries {
+                q[i * target..i * target + dim].copy_from_slice(&queries[i * dim..(i + 1) * dim]);
+            }
+            (t, q, target)
+        }
+        _ => (base, queries, dim),
+    };
+
+    Ok(Loaded {
+        train: train_out,
+        n_train,
+        queries: queries_out,
+        n_queries,
+        dim: dim_out,
+        ground_truth: Some((gt_data, gt_k)),
+    })
 }
 
 /// Synthetic dataset: `n` train + `n_queries` query vectors drawn from
@@ -105,72 +164,10 @@ fn load_random(n: usize, dim: usize, n_queries: usize) -> Loaded {
     }
 }
 
-fn load_sift_1m() -> Result<Loaded> {
-    let dir = cache_dir()?.join("sift");
-    if !dir.exists() {
-        download_and_extract_sift(&dir)?;
-    }
-
-    let train = read_fvecs(&dir.join("sift_base.fvecs"))?;
-    let queries = read_fvecs(&dir.join("sift_query.fvecs"))?;
-    let (gt_data, gt_k) = read_ivecs(&dir.join("sift_groundtruth.ivecs"))?;
-
-    let dim = 128;
-    let n_train = train.len() / dim;
-    let n_queries = queries.len() / dim;
-
-    Ok(Loaded {
-        train,
-        n_train,
-        queries,
-        n_queries,
-        dim,
-        ground_truth: Some((gt_data, gt_k)),
-    })
-}
-
-fn download_and_extract_sift(dest: &Path) -> Result<()> {
-    let parent = dest.parent().unwrap();
-    fs::create_dir_all(parent)?;
-    let archive = parent.join("sift.tar.gz");
-
-    if !archive.exists() {
-        eprintln!("Downloading SIFT-1M (~160 MB) ...");
-        // Try HTTP mirror first (FTP is blocked in many networks).
-        let resp = ureq::get(SIFT_URL_HTTP)
-            .timeout(std::time::Duration::from_secs(300))
-            .call()
-            .with_context(|| format!("download from {SIFT_URL_HTTP}"))?;
-
-        let len = resp
-            .header("Content-Length")
-            .and_then(|s| s.parse::<u64>().ok());
-        let pb = match len {
-            Some(n) => ProgressBar::new(n),
-            None => ProgressBar::new_spinner(),
-        };
-        if len.is_some() {
-            pb.set_style(
-                ProgressStyle::with_template("{spinner} {wide_bar} {bytes}/{total_bytes} ({eta})")
-                    .unwrap(),
-            );
-        }
-
-        let mut reader = pb.wrap_read(resp.into_reader());
-        let mut writer = BufWriter::new(File::create(&archive)?);
-        std::io::copy(&mut reader, &mut writer)?;
-        pb.finish_with_message("downloaded");
-        eprintln!("\nFallback URL if this failed: {SIFT_URL}");
-    }
-
-    eprintln!("Extracting to {} ...", dest.display());
-    let tar_gz = File::open(&archive)?;
-    let tar = flate2::read::GzDecoder::new(tar_gz);
-    let mut archive = tar::Archive::new(tar);
-    archive.unpack(parent)?;
-
-    Ok(())
-}
+// SIFT-1M and other real datasets are loaded via `load_prepped` above. The
+// previous INRIA-mirror downloader was removed when the mirror went offline;
+// use `benchmarks/scripts/prep_datasets.py` which pulls from
+// ann-benchmarks.com instead (more reliable, ships precomputed ground truth).
 
 /// Read an `.fvecs` file as a flat `Vec<f32>` of length `n * dim`.
 pub fn read_fvecs(path: &Path) -> Result<Vec<f32>> {
