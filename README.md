@@ -14,16 +14,27 @@ matrix for small per-block rotations from Clifford algebra. Inspired by
 > *"Replace the d×d random orthogonal matrix with Clifford rotors... exploiting
 > algebraic sparsity"* — RotorQuant paper
 
-## Three rotation variants
+## Four rotation variants
 
-| Variant | Block | Algebra | Params (d=128) | When to pick it |
-|---|---:|---|---:|---|
-| `Planar2` | 2 | 2D Givens (SO(2)) | 128 | Cheapest. Per the RotorQuant paper, **best PPL** for KV-cache decorrelation. |
-| `Rotor3` | 3 | Cl(3,0) sandwich `R v R̃` | 172 | Default. Richer algebraic structure than Givens, modest cost. |
-| `Iso4` | 4 | Quaternion left-iso (SO(4)) | 128 | Most decorrelation per group; slightly more compute than `Planar2`. |
+| Variant | Block | Algebra | Cost / vector | When to pick it |
+|---|---:|---|---|---|
+| `Planar2` | 2 | 2D Givens (SO(2)) | O(d) | Cheapest. Per the RotorQuant paper, **best PPL** for KV-cache decorrelation. |
+| `Rotor3` | 3 | Cl(3,0) sandwich `R v R̃` | O(d) | Default. Richer algebraic structure than Givens, modest cost. |
+| `Iso4` | 4 | Quaternion left-iso (SO(4)) | O(d) | Most decorrelation per group; slightly more compute than `Planar2`. |
+| `WalshRotor3` ✨ | 3 + global | signed FWHT then Cl(3,0) sandwich | O(d log d) | **v0.2.3 default for power-of-two dims.** Closes the recall gap on data with strong cross-coordinate correlations (image features, SIFT). Requires `dim ∈ {128, 256, 512, 1024, 2048, 4096}`. |
 
 For comparison, TurboQuant uses **16,384 parameters** (a 128×128 matrix) and
-O(d²) FMAs per vector. All three rotorvec variants are O(d) per vector.
+O(d²) FMAs per vector. The first three rotorvec variants are O(d) per vector;
+`WalshRotor3` is O(d log d) — sitting between block-only and dense-GEMM in
+both cost and decorrelation power.
+
+### Picking the right variant
+
+| Your data has... | Pick |
+|---|---|
+| `dim` is a power of 2 (SIFT-128, CLIP-512, BGE-1024) | `WalshRotor3` — strongest recall |
+| `dim` not a power of 2 (GloVe-100, MiniLM-384, CLIP-768, OpenAI-1536) | `Rotor3` (default), `Planar2`, or `Iso4` |
+| Want the cheapest per-vector cost | `Planar2` |
 
 ## Quick start
 
@@ -56,6 +67,9 @@ index = RotorQuantIndex(dim=1536, bits=4)
 planar = RotorQuantIndex(dim=1536, bits=4, rotation="planar2")
 iso    = RotorQuantIndex(dim=1536, bits=4, rotation="iso4")
 
+# Power-of-two dim → use WalshRotor3 for best recall on hard data
+walsh  = RotorQuantIndex(dim=1024, bits=4, rotation="walshrotor3")
+
 vectors = np.random.randn(10_000, 1536).astype(np.float32)
 queries = np.random.randn(8, 1536).astype(np.float32)
 
@@ -76,7 +90,8 @@ scores, returned_ids = m.search(queries, k=3)   # ids are uint64
 m.remove(1002)
 ```
 
-Accepted `rotation` values: `"planar2"`, `"rotor3"` (default), `"iso4"`.
+Accepted `rotation` values: `"planar2"`, `"rotor3"` (default), `"iso4"`,
+`"walshrotor3"` (aliases: `"walsh"`, `"walsh-rotor3"`).
 
 ### Rust
 
@@ -86,6 +101,7 @@ use rotorvec::{RotorQuantIndex, Rotation};
 let mut index = RotorQuantIndex::new(1536, 4);                       // Rotor3 default
 let mut planar = RotorQuantIndex::with_rotation(1536, 4, Rotation::Planar2);
 let mut iso    = RotorQuantIndex::with_rotation(1536, 4, Rotation::Iso4);
+let mut walsh  = RotorQuantIndex::with_rotation(1024, 4, Rotation::WalshRotor3); // dim must be pow2
 
 index.add(&vectors);
 let results = index.search(&queries, 10);
@@ -106,41 +122,48 @@ index.remove(1002);
 
 ## How it works
 
-For each variant the pipeline is the same — only the rotation changes:
+The pipeline per vector:
 
-1. **Normalize** each vector to unit length, store the norm separately.
-2. **Generate per-block rotation matrices** from a deterministic ChaCha8
+1. **Normalize** to unit length, store the norm separately.
+2. **(WalshRotor3 only)** Sign-flip by a deterministic ±1 vector, then
+   apply the fast Walsh-Hadamard transform, then rescale by `1/√d`. This
+   spreads each coordinate's energy across all `d` outputs in `O(d log d)`
+   work — the cross-block mixing the block-only variants lack.
+3. **Generate per-block rotation matrices** from a deterministic ChaCha8
    seed:
-   * `Planar2`: sample one angle θ → 2×2 Givens matrix.
-   * `Rotor3`: sample a unit Cl(3,0) rotor `R = (s, b₁₂, b₁₃, b₂₃)` →
-     3×3 SO(3) matrix (the sandwich `R v R̃` reduces algebraically to a
+   * `Planar2`: one angle θ → 2×2 Givens matrix per pair.
+   * `Rotor3` / `WalshRotor3`: a unit Cl(3,0) rotor `R = (s, b₁₂, b₁₃, b₂₃)`
+     → 3×3 SO(3) matrix (the sandwich `R v R̃` reduces algebraically to a
      3×3 rotation for grade-1 input).
-   * `Iso4`: sample a unit quaternion `q = (w, x, y, z)` → 4×4 SO(4) matrix
+   * `Iso4`: a unit quaternion `q = (w, x, y, z)` → 4×4 SO(4) matrix
      (left-isoclinic action `M v ↔ q · v`).
-3. **Block-rotate** the unit vector — block-diagonal matrix multiply, no
-   inter-block dependencies.
-4. **Quantize** each rotated coordinate to a Lloyd-Max centroid (2/3/4 bit).
-5. **Bit-pack** into bit-plane format.
+4. **Block-rotate** — block-diagonal matrix multiply, no inter-block
+   dependencies.
+5. **Quantize** each rotated coordinate to a Lloyd-Max centroid (2/3/4 bit).
+6. **Bit-pack** into bit-plane format.
 
-Search reverses the process: rotate the query, accumulate per-coordinate
-inner products against each stored vector's quantized codes, multiply by
-stored norms, return top-k.
+Search reverses the process: apply the same WHT pre-pass (if any) and
+block rotation to the query, accumulate per-coordinate inner products
+against each stored vector's quantized codes, multiply by stored norms,
+return top-k.
 
-The trade-off across all three variants: block-diagonal rotation only
-decorrelates within blocks, not across them. Per the RotorQuant paper this
-is sufficient for KV cache vectors (low-rank manifolds). For general
-embedding search, recall vs turbovec is an empirical question — benchmark
-before committing.
+The trade-off across block-only variants (`Planar2`, `Rotor3`, `Iso4`):
+they only decorrelate within blocks, not across them. That's fine for
+data with weak cross-coordinate correlations (typical text embeddings)
+but loses recall on data with strong cross-coord structure (image
+features like SIFT). `WalshRotor3` exists specifically to close that
+gap on power-of-2 dimensions.
 
 ## What's different from turbovec
 
-| | turbovec (TurboQuant) | rotorvec (any variant) |
-|---|---|---|
-| Decorrelation | Dense d×d random orthogonal matrix | Block-diagonal small rotations |
-| Rotation cost | O(d²) per vector (BLAS GEMM) | O(d) per vector |
-| Parameters | d² floats | ~d floats |
-| BLAS dependency | Yes (Accelerate / OpenBLAS) | None |
-| Decorrelation scope | All d coordinates | Within 2/3/4-element blocks only |
+| | turbovec (TurboQuant) | rotorvec (block-only) | rotorvec (`WalshRotor3`) |
+|---|---|---|---|
+| Decorrelation | Dense d×d random orthogonal matrix | Block-diagonal small rotations | Signed FWHT + block rotation |
+| Rotation cost | O(d²) per vector (BLAS GEMM) | O(d) per vector | O(d log d) per vector |
+| Parameters | d² floats | ~d floats | ~d floats + d sign bits |
+| BLAS dependency | Yes (Accelerate / OpenBLAS) | None | None |
+| Decorrelation scope | All d coordinates | Within 2/3/4-element blocks only | All d coordinates |
+| Dim constraint | `dim % 8 == 0` | `dim % 8 == 0` | `dim` power of 2 |
 
 ## Repo layout
 
@@ -188,20 +211,27 @@ Once configured, neither workflow needs API tokens stored as secrets.
 
 ## Status
 
-**v0.1 — proof of concept**
-- All three variants implemented and tested
-  - 13 Rust tests (unit + integration + doctest)
-  - 13 Python tests (parametrized across all three variants)
-- Pure Rust, no SIMD intrinsics
-- Will be slower than turbovec's hand-tuned NEON/AVX-512 search by 3–5×
-- Use for: experimentation, recall benchmarks, baseline implementations
+**v0.2.3 — current release.** Published on [crates.io](https://crates.io/crates/rotorvec)
+and [PyPI](https://pypi.org/project/rotorvec/). 26 tests passing (16 unit +
+9 integration + 1 doctest). CI green on Linux + macOS, Python 3.10/3.12/3.13.
 
-**Roadmap (v0.2+)**
-- Published wheels on PyPI
-- NEON / AVX-512 search kernels (port turbovec's blocked layout)
-- Recall benchmarks across all three variants vs turbovec on standard
-  datasets (GloVe, SIFT, GIST)
-- LangChain / LlamaIndex / Haystack integrations
+### Release history
+
+| Version | Headline |
+|---|---|
+| **v0.2.3** | `WalshRotor3` variant — beats turbovec on SIFT-1M recall (0.496 vs 0.487) at 1.8× faster build |
+| v0.2.2 | Real-dataset benchmarks (GloVe-100, SIFT-1M) + FAISS baseline + apples-to-apples audit |
+| v0.2.1 | NEON 4-bit search kernel — 130× faster search on aarch64, 96% of turbovec QPS at d=128 |
+| v0.2.0 | Benchmark harness + Rotor3 trailing-padding fix (recall@10 at d=128: 0.78 → 0.83) |
+| v0.1.x | Initial release — three rotation variants, scalar search, file format, CI/CD |
+
+### Roadmap (v0.2.4+)
+
+- **v0.2.4** — Generalized cross-block mixing for non-power-of-2 dim (covers 384, 768, 1536)
+- **v0.2.5** — x86 AVX2 / AVX-512 search kernels (cloud x86 coverage)
+- **v0.2.6** — NEON for 2-bit / 3-bit code widths
+- **v0.3.0** — HNSW wrapper for production-scale corpora (>10M vectors)
+- LangChain / LlamaIndex / Haystack integrations once HNSW lands
 
 ## File format
 
